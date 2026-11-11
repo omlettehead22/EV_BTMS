@@ -86,6 +86,39 @@ def _cell(args) -> None:
         print(f"  WARNING: {w}")
 
 
+def _design(args) -> None:
+    from .design import DesignStudy, DutyCycle, Requirements, default_cooling_options, run_study
+    from .report import plot_tradeoff
+
+    cell = get_cell(args.cell)
+    duty = DutyCycle.constant(
+        args.c_rate, args.mode, soc0=args.soc0, soc_limits=(args.soc_min, args.soc_max), rest_after_s=args.rest_h * 3600
+    )
+    req = Requirements(
+        T_max_C=args.t_max, dT_cell_max_C=args.dt_max, T_env_C=args.t_env, recovery_max_min=args.recovery_max_min
+    )
+    options = default_cooling_options({"air": args.air_kg_per_kwh, "liquid": args.liquid_kg_per_kwh})
+    study = DesignStudy(
+        cell,
+        duty,
+        req,
+        cooling_options=tuple(options),
+        pcm_thicknesses_mm=tuple(args.pcm_mm),
+        case_thickness_mm=args.case_mm,
+        cells_in_pack=args.cells_in_pack,
+    )
+    t0 = time.perf_counter()
+    result = run_study(study, workers=args.workers)
+    print(result.summary())
+    print(f"({time.perf_counter() - t0:.0f}s)")
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"{args.cell.lower()}_{args.mode}_{args.c_rate:g}C"
+        result.table.to_csv(args.out_dir / f"{stem}_designs.csv", index=False)
+        plot_tradeoff(result, args.out_dir / f"{stem}_tradeoff.png")
+        print(f"Wrote {stem}_designs.csv and {stem}_tradeoff.png to {args.out_dir}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="btms", description="Battery thermal management design toolkit.")
     sub = ap.add_subparsers(dest="cmd")
@@ -112,6 +145,27 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--soc-max", type=float, default=1.0)
     e.add_argument("--duration", type=float, help="Seconds (default: time to cross the SOC window +5%%).")
     e.set_defaults(func=_cell)
+
+    d = sub.add_parser("design", help="Sweep cooling x PCM thickness and chart the trade-off.")
+    d.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    d.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
+    d.add_argument("--c-rate", type=float, default=1.0)
+    d.add_argument("--soc0", type=float)
+    d.add_argument("--soc-min", type=float, default=0.0)
+    d.add_argument("--soc-max", type=float, default=1.0)
+    d.add_argument("--t-env", type=float, default=25.0, help="Ambient/coolant [degC].")
+    d.add_argument("--t-max", type=float, help="Peak limit [degC] (default min(45, datasheet)).")
+    d.add_argument("--dt-max", type=float, default=5.0, help="In-cell spread limit [degC].")
+    d.add_argument("--recovery-max-min", type=float, help="Must be ready again within this many minutes.")
+    d.add_argument("--rest-h", type=float, default=3.0, help="Rest simulated after the event [h].")
+    d.add_argument("--pcm-mm", type=float, nargs="+", default=[0, 1, 2, 3, 4, 6])
+    d.add_argument("--case-mm", type=float, default=1.0)
+    d.add_argument("--cells-in-pack", type=int, default=100)
+    d.add_argument("--air-kg-per-kwh", type=float, default=0.5)
+    d.add_argument("--liquid-kg-per-kwh", type=float, default=1.0)
+    d.add_argument("--workers", type=int)
+    d.add_argument("--out-dir", type=Path)
+    d.set_defaults(func=_design)
 
     args = ap.parse_args(argv)
     if args.cmd is None:

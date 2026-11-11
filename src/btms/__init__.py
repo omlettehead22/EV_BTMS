@@ -6,7 +6,7 @@ from .model import SimulationResult, simulate
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "CELLS",

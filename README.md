@@ -4,7 +4,44 @@ A transient thermal model of a lithium-ion cell wrapped in a phase-change materi
 
 ![Model domain](docs/figures/figure_3_1_model_domain.png)
 
-## Status: v0.2, electro-thermal cells
+## Status: v0.3, design advisor
+
+Give the advisor a cell, a duty cycle and your limits. It simulates every combination of cooling option and PCM thickness, then shows the trade-off between **mass added** and **fan/pump energy**:
+
+```bash
+btms design M50 --mode discharge --c-rate 1.5 --out-dir results/
+```
+
+![Trade-off chart, LG M50 at 1.5C](docs/examples/m50_discharge_1.5C_tradeoff.png)
+
+```
+LG INR21700 M50, discharge 1.5C 0%-100%, ambient 25 degC
+Limits: T_peak <= 45 degC, in-cell dT <= 5 degC, ready again within 180 min
+42 designs, 34 feasible, 2 on the trade-off front
+Lightest       air-mid     + 0 mm PCM: T_peak 39.4 degC, +32.7% mass, aux 0.77% of energy, recovery 21 min
+Lowest energy  liquid-low  + 0 mm PCM: T_peak 32.4 degC, +46.0% mass, aux 0.39% of energy, recovery 5 min
+Balanced       liquid-low  + 0 mm PCM: T_peak 32.4 degC, +46.0% mass, aux 0.39% of energy, recovery 5 min
+```
+
+**How a design is judged**
+- **Feasible** means the peak cell temperature stays within the limit (by default min(45 °C, datasheet)), the in-cell spread stays within 5 °C, and the cell is **ready again** within the rest window (within 1 K of ambient, with the PCM re-solidified).
+- **Mass added** counts the PCM, the casing sleeve and the cooling hardware, as % of cell mass.
+- **Fan/pump energy** is shown as % of the energy the cell delivers.
+- The **front** is the set of feasible designs that no other feasible design beats on both costs. Three picks come from it: lightest, lowest energy, and balanced (closest to ideal on both costs, ties broken by temperature margin).
+- **Robustness:** front designs are re-run at the top of the cell's published resistance spread, so a pick never depends on a best-case cell.
+
+**What the M50 studies show**
+- **PCM never reaches the front at 1.5C.** With strong cooling it insulates the cell from the coolant. With natural convection it absorbs the peak (39.6 °C) but doesn't re-freeze within 3 hours, so the cell isn't ready for another event (`slow` in panel B).
+- **0.7C charge to 80 %:** natural convection is enough (peak 34.4 °C), so active cooling buys nothing ([chart](docs/examples/m50_charge_0.7C_tradeoff.png)).
+- **35 °C ambient:** only 4 of 42 designs pass, and the RT31 PCM (melts at 29–34 °C) is liquid before the event starts ([chart](docs/examples/m50_discharge_1.5C_35C_tradeoff.png)). In hot climates the PCM melt temperature has to be a design choice too.
+
+**Assumptions to know (all adjustable via CLI flags)**
+- **Cooling hardware mass:** 0.5 kg/kWh for air and 1.0 kg/kWh for liquid, within the 0.5–5 kg/kWh industry range.
+- **Fan/pump power:** the thesis pack-level values, split across a 100-cell pack.
+- **Casing:** a 1 mm aluminium sleeve per cell, from the thesis geometry.
+- **Time step:** sweeps use dt = 2 s, which is within 0.01 °C of 0.5 s.
+
+## v0.2: electro-thermal cells
 
 **New in v0.2**
 - **Heat generation from real cells.** Heat comes from current via Q = I²R(SOC, T) − I·T·dU/dT(SOC), with coulomb-counted SOC and temperature feeding back into resistance every step.
@@ -79,14 +116,16 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 |---|---|
 | **v0.1** ✅ | Python port, parity tests, CI |
 | **v0.2** ✅ | Electro-thermal heat generation, cell library (M50 21700, MJ1 18650), enthalpy-Newton solver, datasheet limit checks |
-| v0.3 | Design advisor: sweep cooling type, h and PCM thickness and return the lightest or lowest-energy design that meets T_max and ΔT limits |
+| **v0.3** ✅ | Design advisor: cooling × PCM sweep, feasibility (peak, ΔT, recovery), Pareto front, three picks, worst-case-resistance re-check, trade-off chart |
+| v0.3.x | Continuous h with fan-law power, PCM melt temperature as a design variable, drive-cycle duties |
 | v0.4 | Pack level: coolant temperature rise along the cold plate, cell-to-cell spread |
 | v0.5 | Web app and API |
 
 ## Repository layout
 
 ```
-src/btms/        Python package (params, model, cells, electrothermal, scenarios, metrics, cli)
+src/btms/        Python package (params, model, cells, electrothermal, design, report, scenarios, metrics, cli)
+docs/examples/   design-study charts and CSVs
 tests/           MATLAB-parity and physics tests
 matlab/          original thesis code + reference results
 docs/figures/    thesis figures

@@ -1,0 +1,347 @@
+"""Design advisor: sweep cooling options and PCM thickness, find the trade-off.
+
+For one cell and one duty cycle, every combination of cooling option and PCM
+thickness is simulated. Each design is scored on two costs:
+
+* **mass overhead**: PCM + casing + cooling hardware as % of cell mass
+* **auxiliary energy**: fan/pump electricity as % of the energy the cell moves
+
+A design is *feasible* if peak cell temperature and in-cell temperature
+spread stay within the requirements (and, if set, it recovers in time for the
+next event: back within 1 K of ambient with the PCM re-solidified). The feasible designs that no other
+feasible design beats on both costs form the Pareto front; three picks are
+made from it (lightest, lowest-energy, balanced). Every front design is
+re-checked at the top of the cell's published resistance spread so the
+recommendation does not rely on a best-case cell.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, field, replace
+
+import numpy as np
+import pandas as pd
+
+from .cells import Cell
+from .electrothermal import CurrentProfile, segments, simulate_cell
+from .params import DEFAULT_AUX_POWER, DEFAULT_H, KELVIN, PCM, Params
+
+
+@dataclass(frozen=True)
+class CoolingOption:
+    name: str
+    kind: str  # "natural" | "air" | "liquid"
+    h: float  # W/(m^2 K), on the cell sleeve's outer surface
+    aux_power_pack_W: float  # fan/pump electrical power for the whole pack
+    hardware_kg_per_kWh: float = 0.0  # ducts, fans, cold plates, coolant per kWh of cells
+
+
+# ASSUMPTION: cooling hardware mass. Industry figures put cooling-system mass
+# at roughly 0.5-5 kg per kWh of capacity depending on architecture
+# (e-Mobility Engineering, issue 33). Air (fans, ducts) is taken at the low end
+# and liquid (cold plates, coolant, pump) at 1 kg/kWh. Override per study.
+HARDWARE_KG_PER_KWH = {"natural": 0.0, "air": 0.5, "liquid": 1.0}
+
+
+def default_cooling_options(hardware_kg_per_kWh: dict[str, float] | None = None) -> list[CoolingOption]:
+    """Natural convection plus the thesis air and liquid levels.
+
+    The thesis fan/pump powers are pack-level estimates. Natural convection
+    uses h = 5 W/m^2K, a typical still-air value for a cylinder.
+    """
+    hw = {**HARDWARE_KG_PER_KWH, **(hardware_kg_per_kWh or {})}
+    opts = [CoolingOption("natural", "natural", 5.0, 0.0, hw["natural"])]
+    for kind in ("air", "liquid"):
+        for level in ("low", "mid", "high"):
+            opts.append(
+                CoolingOption(f"{kind}-{level}", kind, DEFAULT_H[kind][level], DEFAULT_AUX_POWER[kind][level], hw[kind])
+            )
+    return opts
+
+
+@dataclass(frozen=True)
+class DutyCycle:
+    """A picklable current-profile recipe (so studies can run in parallel)."""
+
+    name: str
+    c_rate: float = 1.0
+    mode: str = "discharge"  # for constant duties
+    steps: tuple[tuple[float, float], ...] = ()  # (duration_s, c_rate) for segment duties
+    repeat: bool = False
+    duration: float | None = None  # s; default: time to cross the SOC window +5 %
+    soc0: float = 1.0
+    soc_limits: tuple[float, float] = (0.0, 1.0)
+    # Rest simulated after the event to measure recovery (cool-down and PCM
+    # re-solidification) before the next event.
+    rest_after_s: float = 3 * 3600.0
+
+    @classmethod
+    def constant(cls, c_rate: float, mode: str = "discharge", soc0: float | None = None, soc_limits=(0.0, 1.0), **kw):
+        if soc0 is None:
+            soc0 = soc_limits[1] if mode == "discharge" else soc_limits[0]
+        name = kw.pop("name", f"{mode} {c_rate:g}C {soc_limits[0]:.0%}-{soc_limits[1]:.0%}")
+        return cls(name=name, c_rate=c_rate, mode=mode, soc0=soc0, soc_limits=soc_limits, **kw)
+
+    @property
+    def is_charge(self) -> bool:
+        if self.steps:
+            return any(c < 0 for _, c in self.steps)
+        return self.mode == "charge"
+
+    def profile(self, cell: Cell) -> CurrentProfile:
+        """Current profile; zero after the event so the rest period is a true rest."""
+        if self.steps:
+            return segments(cell, list(self.steps), repeat=self.repeat)
+        sign = 1.0 if self.mode == "discharge" else -1.0
+        return segments(cell, [(self.event_duration(), sign * self.c_rate)])
+
+    def event_duration(self) -> float:
+        if self.duration is not None:
+            return self.duration
+        if self.steps:
+            return float(sum(d for d, _ in self.steps))
+        window = self.soc_limits[1] - self.soc_limits[0]
+        return 3600.0 * window / self.c_rate * 1.05
+
+
+@dataclass(frozen=True)
+class Requirements:
+    """Design limits. ``T_max_C=None`` means min(45 degC, datasheet limit).
+
+    45 degC is a common pack design target for cycle life; datasheet limits
+    (50-60 degC) are abuse limits, not design targets.
+    """
+
+    T_max_C: float | None = None
+    dT_cell_max_C: float = 5.0
+    T_env_C: float = 25.0
+    # Max time after the current stops until the cell is within 1 K of ambient
+    # and the PCM has re-solidified, i.e. ready for an identical event.
+    # None = must recover within the duty's simulated rest window;
+    # math.inf = report only, never reject.
+    recovery_max_min: float | None = None
+
+    def T_limit(self, cell: Cell, charging: bool) -> float:
+        if self.T_max_C is not None:
+            return self.T_max_C
+        datasheet = cell.T_max_charge_C if charging else cell.T_max_discharge_C
+        return min(45.0, datasheet) if datasheet is not None else 45.0
+
+
+@dataclass(frozen=True)
+class DesignStudy:
+    cell: Cell
+    duty: DutyCycle
+    requirements: Requirements = field(default_factory=Requirements)
+    cooling_options: tuple[CoolingOption, ...] = field(default_factory=lambda: tuple(default_cooling_options()))
+    pcm_thicknesses_mm: tuple[float, ...] = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0)
+    case_thickness_mm: float = 1.0
+    # ASSUMPTION: converts the thesis pack-level fan/pump powers to per cell.
+    cells_in_pack: int = 100
+    pcm: PCM = field(default_factory=PCM)
+    case_density: float = 2700.0  # Al 6061
+    dt: float = 2.0  # s; within 0.01 degC of dt = 0.5 s on peak temperature
+
+
+def _sleeve_masses(study: DesignStudy, pcm_mm: float) -> tuple[float, float]:
+    """PCM and casing mass per cell [kg]."""
+    r_c = study.cell.radius
+    r_p = r_c + pcm_mm * 1e-3
+    r_o = r_p + study.case_thickness_mm * 1e-3
+    L = study.cell.height
+    m_pcm = study.pcm.rho * math.pi * (r_p**2 - r_c**2) * L
+    m_case = study.case_density * math.pi * (r_o**2 - r_p**2) * L
+    return m_pcm, m_case
+
+
+def evaluate_design(study: DesignStudy, cooling: CoolingOption, pcm_mm: float, R0: float | None = None) -> dict:
+    """Simulate one design and return its metrics row."""
+    cell = study.cell if R0 is None else replace(study.cell, R0_25C=R0)
+    duty = study.duty
+    T_env = study.requirements.T_env_C + KELVIN
+    base = Params(pcm=study.pcm, T_initial=T_env)
+    base = base.with_(solver=replace(base.solver, dt=study.dt))
+    event = duty.event_duration()
+    duration = event + (0.0 if duty.repeat else duty.rest_after_s)
+    res, load = simulate_cell(
+        cell,
+        duty.profile(cell),
+        duration,
+        cooling.h,
+        T_env,
+        pcm_thickness=pcm_mm * 1e-3,
+        case_thickness=study.case_thickness_mm * 1e-3,
+        soc0=duty.soc0,
+        soc_limits=duty.soc_limits,
+        base=base,
+    )
+    a = load.arrays()
+    dt = np.diff(res.t)
+    throughput_Wh = float(np.sum(np.abs(a["current_A"]) * dt)) * cell.V_nominal / 3600.0
+    aux_Wh = cooling.aux_power_pack_W / study.cells_in_pack * event / 3600.0
+    m_pcm, m_case = _sleeve_masses(study, pcm_mm)
+    cell_kWh = cell.capacity_Ah * cell.V_nominal / 1e3
+    m_hw = cooling.hardware_kg_per_kWh * cell_kWh
+    m_over = m_pcm + m_case + m_hw
+
+    # Recovery: first time after the current stops with T_max within 1 K of
+    # ambient and the PCM (almost) fully solid.
+    active = np.flatnonzero(np.abs(a["current_A"]) > 0)
+    t_stop = float(a["t"][active[-1]] + study.dt) if active.size else 0.0
+    after = res.t >= t_stop - 1e-9
+    ready = after & (res.T_max - T_env < 1.0) & (res.pcm_fraction < 0.01)
+    recovery_min = float((res.t[ready][0] - t_stop) / 60.0) if ready.any() and not duty.repeat else np.nan
+    req = study.requirements
+    T_limit = req.T_limit(study.cell, duty.is_charge)
+    T_peak = float(res.T_max.max() - KELVIN)
+    dT = float(res.dT_cell.max())
+    if duty.repeat or req.recovery_max_min == math.inf:
+        rec_ok = True
+    elif req.recovery_max_min is None:
+        rec_ok = bool(np.isfinite(recovery_min))
+    else:
+        rec_ok = bool(np.isfinite(recovery_min) and recovery_min <= req.recovery_max_min)
+    return {
+        "cooling": cooling.name,
+        "cooling_kind": cooling.kind,
+        "h_W_m2K": cooling.h,
+        "pcm_mm": pcm_mm,
+        "R0_mOhm": cell.R0_25C * 1e3,
+        "T_peak_C": T_peak,
+        "dT_cell_C": dT,
+        "pcm_peak_liquid_fraction": float(res.pcm_fraction.max()),
+        "heat_kJ": res.E_generated / 1e3,
+        "throughput_Wh": throughput_Wh,
+        "aux_energy_Wh": aux_Wh,
+        "aux_energy_pct": 100.0 * aux_Wh / throughput_Wh if throughput_Wh > 0 else np.nan,
+        "mass_pcm_g": 1e3 * m_pcm,
+        "mass_case_g": 1e3 * m_case,
+        "mass_hardware_g": 1e3 * m_hw,
+        "mass_overhead_g": 1e3 * m_over,
+        "mass_overhead_pct": 100.0 * m_over / cell.mass,
+        "recovery_min": recovery_min,
+        "T_limit_C": T_limit,
+        "T_margin_C": T_limit - T_peak,
+        "feasible": bool(T_peak <= T_limit and dT <= req.dT_cell_max_C and rec_ok),
+        # hot = peak above limit, uneven = in-cell spread above limit,
+        # slow = not ready for the next event in time
+        "fail_reason": " · ".join(
+            r for r, bad in (("hot", T_peak > T_limit), ("uneven", dT > req.dT_cell_max_C), ("slow", not rec_ok)) if bad
+        ),
+    }
+
+
+def _evaluate_args(args):
+    return evaluate_design(*args)
+
+
+def _map(fn, jobs: list, workers: int | None):
+    workers = workers if workers is not None else min(len(jobs), os.cpu_count() or 1)
+    if workers <= 1 or len(jobs) <= 1:
+        return [fn(j) for j in jobs]
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, jobs))
+
+
+def pareto_mask(cost_a: np.ndarray, cost_b: np.ndarray) -> np.ndarray:
+    """True where no other point is <= on both costs and < on at least one."""
+    n = len(cost_a)
+    mask = np.ones(n, dtype=bool)
+    for i in range(n):
+        dominated = (cost_a <= cost_a[i]) & (cost_b <= cost_b[i]) & ((cost_a < cost_a[i]) | (cost_b < cost_b[i]))
+        mask[i] = not dominated.any()
+    return mask
+
+
+@dataclass
+class StudyResult:
+    study: DesignStudy
+    table: pd.DataFrame  # one row per design
+    picks: dict[str, pd.Series]  # "lightest", "lowest_energy", "balanced" (front designs)
+
+    @property
+    def front(self) -> pd.DataFrame:
+        return self.table[self.table.pareto].sort_values("mass_overhead_pct")
+
+    def _recovery_text(self) -> str:
+        r, d = self.study.requirements.recovery_max_min, self.study.duty
+        if d.repeat or r == math.inf:
+            return "recovery not required"
+        if r is None:
+            return f"ready again within {d.rest_after_s / 60:.0f} min"
+        return f"ready again within {r:g} min"
+
+    def summary(self) -> str:
+        s, t = self.study, self.table
+        lines = [
+            f"{s.cell.name}, {s.duty.name}, ambient {s.requirements.T_env_C:g} degC",
+            (
+                f"Limits: T_peak <= {t.T_limit_C.iloc[0]:g} degC, in-cell dT <= {s.requirements.dT_cell_max_C:g} degC, "
+                f"{self._recovery_text()}"
+            ),
+            f"{len(t)} designs, {int(t.feasible.sum())} feasible, {int(t.pareto.sum())} on the trade-off front",
+        ]
+        if not self.picks:
+            best = t.loc[t.T_peak_C.idxmin()]
+            lines.append(
+                f"No feasible design. Coolest: {best.cooling} + {best.pcm_mm:g} mm PCM at {best.T_peak_C:.1f} degC. "
+                "Reduce the C-rate, raise the limit, or add stronger cooling."
+            )
+            return "\n".join(lines)
+        for key, label in (("lightest", "Lightest"), ("lowest_energy", "Lowest energy"), ("balanced", "Balanced")):
+            r = self.picks[key]
+            robust = "" if r.robust else f"  (fails at R0 = {r.R0_worst_mOhm:g} mOhm: {r.T_peak_worst_C:.1f} degC)"
+            rec = f"{r.recovery_min:.0f} min" if np.isfinite(r.recovery_min) else "n/a"
+            lines.append(
+                f"{label:<14} {r.cooling:<11} + {r.pcm_mm:g} mm PCM: T_peak {r.T_peak_C:.1f} degC, "
+                f"+{r.mass_overhead_pct:.1f}% mass, aux {r.aux_energy_pct:.2f}% of energy, "
+                f"recovery {rec}{robust}"
+            )
+        return "\n".join(lines)
+
+
+def run_study(study: DesignStudy, workers: int | None = None, robustness: bool = True) -> StudyResult:
+    jobs = [(study, c, p) for c in study.cooling_options for p in study.pcm_thicknesses_mm]
+    table = pd.DataFrame(_map(_evaluate_args, jobs, workers))
+
+    table["pareto"] = False
+    feas = table.feasible.to_numpy()
+    if feas.any():
+        idx = np.flatnonzero(feas)
+        front = pareto_mask(table.mass_overhead_pct.to_numpy()[idx], table.aux_energy_pct.to_numpy()[idx])
+        table.loc[idx[front], "pareto"] = True
+
+    # Robustness: re-check front designs at the worst published resistance.
+    table["R0_worst_mOhm"] = np.nan
+    table["T_peak_worst_C"] = np.nan
+    table["robust"] = table.feasible.copy()
+    R_hi = study.cell.R0_range[1]
+    if robustness and table.pareto.any() and R_hi > study.cell.R0_25C:
+        front_rows = table.index[table.pareto]
+        by_name = {c.name: c for c in study.cooling_options}
+        worst = _map(
+            _evaluate_args,
+            [(study, by_name[table.at[i, "cooling"]], table.at[i, "pcm_mm"], R_hi) for i in front_rows],
+            workers,
+        )
+        for i, w in zip(front_rows, worst):
+            table.at[i, "R0_worst_mOhm"] = w["R0_mOhm"]
+            table.at[i, "T_peak_worst_C"] = w["T_peak_C"]
+            table.at[i, "robust"] = w["feasible"]
+
+    picks: dict[str, pd.Series] = {}
+    front = table[table.pareto]
+    if len(front):
+        pool = front[front.robust] if front.robust.any() else front
+        picks["lightest"] = pool.sort_values(["mass_overhead_pct", "aux_energy_pct"]).iloc[0]
+        picks["lowest_energy"] = pool.sort_values(["aux_energy_pct", "mass_overhead_pct"]).iloc[0]
+        m, e = pool.mass_overhead_pct, pool.aux_energy_pct
+        norm = lambda x: (x - x.min()) / (x.max() - x.min()) if x.max() > x.min() else x * 0
+        dist = np.hypot(norm(m), norm(e)).round(9)
+        # Ties (e.g. a two-point front) go to the larger temperature margin.
+        ranked = pool.assign(_d=dist).sort_values(["_d", "T_margin_C"], ascending=[True, False])
+        picks["balanced"] = ranked.drop(columns="_d").iloc[0]
+    return StudyResult(study, table, picks)
