@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+- Design advisor (`btms.design`): sweeps cooling option × PCM thickness for one cell and duty cycle.
+- Feasibility checks peak temperature, in-cell ΔT and recovery (ready for the next event), with a reason recorded for each failure.
+- Costs are mass overhead (PCM + sleeve + cooling hardware, % of cell mass) and fan/pump energy (% of throughput).
+- Pareto front plus three picks (lightest, lowest energy, balanced). Front designs are re-checked at worst-case cell resistance.
+- Trade-off chart (`btms.report.plot_tradeoff`): scatter of mass vs energy, and a grid of peak temperatures with failure reasons.
+- `btms design` CLI writes a CSV and PNG. Studies run in parallel.
+- Duties stop drawing current at the end of the event, so the rest period is a true rest.
+- matplotlib added as a dependency.
+
 ## 0.2.0
 - Electro-thermal load: Q = I²R(SOC,T) − I·T·dU/dT, coulomb-counted SOC, SOC windows.
 - Cell library: LG M50 (21700) and LG MJ1 (18650) with cited parameters; jelly-roll cp and k from O'Regan 2022 layer data.
