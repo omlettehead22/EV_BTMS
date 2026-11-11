@@ -1,19 +1,22 @@
 """Transient 1D radial finite-volume thermal model: cell -> PCM -> casing.
 
-Python port of ``matlab/run_scenario_1D.m`` and its helpers. The governing
-semi-discrete equation per control volume is
+Started as a port of ``matlab/run_scenario_1D.m``. The governing equation per
+control volume is the enthalpy balance
 
-    C(T) dT/dt = A T + q + b
+    rho dh(T)/dt = A T + q + b
 
-solved fully implicitly (backward Euler). PCM melting is handled with an
-apparent heat capacity, iterated to convergence each step with under-relaxed
-Picard iteration, exactly as in the MATLAB reference.
+solved fully implicitly (backward Euler). PCM melting enters through h(T),
+whose slope is the apparent heat capacity over the melting range. By default
+each step is solved with Newton iteration on the enthalpy residual; the
+original thesis scheme (Picard on apparent capacity) is available via
+``SolverSettings(scheme="thesis")``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 from scipy.linalg import solve_banded
@@ -161,6 +164,8 @@ class SimulationResult:
     T_env: float
     converged: bool
     max_iterations: int
+    heat_W: np.ndarray  # W, mean cell heat generation over each step
+    load: object | None = None  # the Load used, holds its own log
 
     @property
     def unconverged_steps(self) -> int:
@@ -189,20 +194,38 @@ class SimulationResult:
         return 100 * abs(self.E_residual) / abs(E) if abs(E) > 0 else 0.0
 
 
+class Load(Protocol):
+    """Electrical load that produces heat inside the cell region.
+
+    ``power`` is called once per time step with the step start time, the step
+    length and the current volume-averaged cell temperature [K]. It returns the
+    mean heat generation over the step [W] and may advance internal state
+    (state of charge, logs).
+    """
+
+    def power(self, t: float, dt: float, T_cell: float) -> float: ...
+
+
 def simulate(
     P: Params,
-    heat_source: HeatSource,
-    duration: float,
-    h: float,
-    T_env: float,
+    heat_source: HeatSource | None = None,
+    duration: float = 600.0,
+    h: float = 0.0,
+    T_env: float | None = None,
+    load: Load | None = None,
 ) -> SimulationResult:
     """Run one transient event.
 
-    heat_source : callable t [s] -> volumetric heat generation in the cell [W/m^3]
+    Give exactly one of
+      heat_source : callable t [s] -> volumetric heat generation in the cell [W/m^3]
+      load        : a :class:`Load` returning total cell heat [W] (electro-thermal)
     duration    : event length [s]
     h           : outer convective coefficient [W/(m^2 K)]; 0 = adiabatic
-    T_env       : ambient / coolant temperature [K]
+    T_env       : ambient / coolant temperature [K] (defaults to P.T_initial)
     """
+    if (heat_source is None) == (load is None):
+        raise ValueError("Give exactly one of heat_source or load.")
+    T_env = P.T_initial if T_env is None else T_env
     grid = build_grid(P)
     rho, cp, _ = _region_props(grid, P)
     lower, diag, upper = build_conduction(grid, P)
@@ -224,6 +247,7 @@ def simulate(
     cell, pcm, case = (grid.region == CELL), (grid.region == PCM_REGION), (grid.region == CASE)
     if not cell.any():
         raise ValueError("Grid contains no battery-cell control volumes.")
+    V_cell = grid.volume[cell].sum()
 
     T = np.full(n, P.T_initial)
     T_hist = np.empty((n, nt + 1))
@@ -232,6 +256,7 @@ def simulate(
     pcm_frac[0] = liquid_fraction(T, grid, P)
     zeros = lambda: np.zeros(nt + 1)
     dE_gen, dE_bc, dE_cell, dE_pcm, dE_case, dE_st, dE_res = (zeros() for _ in range(7))
+    heat_W = zeros()
     iters = np.zeros(nt + 1, dtype=int)
     all_converged = True
 
@@ -241,12 +266,24 @@ def simulate(
     ab[2, :-1] = -lower
     q = np.zeros(n)
 
+    def conduction_times(T):
+        out = diag * T
+        out[:-1] += upper * T[1:]
+        out[1:] += lower * T[:-1]
+        return out
+
+    h_old = specific_enthalpy(T, grid, P)
     for step in range(nt):
-        q_val = float(heat_source(t[step]))
+        if load is not None:
+            T_cell = float(np.sum(T[cell] * grid.volume[cell]) / V_cell)
+            q_val = float(load.power(t[step], dt, T_cell)) / V_cell
+        else:
+            q_val = float(heat_source(t[step]))
         if not np.isfinite(q_val):
             raise ValueError(f"Non-finite heat generation at t={t[step]}")
         q[:] = 0.0
         q[cell] = q_val
+        heat_W[step + 1] = q_val * V_cell
 
         T_old = T
         T_guess = T_old.copy()
@@ -255,26 +292,38 @@ def simulate(
             C = rho_cp_base.copy()
             C[pcm] = P.pcm.rho * apparent_cp(T_guess[pcm], P)
             ab[1, :] = C / dt - diag
-            rhs = C / dt * T_old + q + b
-            T_cand = solve_banded((1, 1), ab, rhs)
-            if not np.all(np.isfinite(T_cand)):
-                raise FloatingPointError(f"Non-finite temperature at t={t[step] + dt}")
-            change = np.max(np.abs(T_cand - T_guess))
-            if change < s.tolerance:
-                T_guess = T_cand
-                converged = True
-                break
-            T_guess = s.relaxation * T_cand + (1 - s.relaxation) * T_guess
+            if s.scheme == "enthalpy":
+                # Newton on R(T) = rho (h(T) - h_old)/dt - (A T + q + b)
+                resid = rho * (specific_enthalpy(T_guess, grid, P) - h_old) / dt - (conduction_times(T_guess) + q + b)
+                delta = solve_banded((1, 1), ab, -resid)
+                if not np.all(np.isfinite(delta)):
+                    raise FloatingPointError(f"Non-finite temperature at t={t[step] + dt}")
+                T_guess = T_guess + delta
+                if np.max(np.abs(delta)) < s.tolerance:
+                    converged = True
+                    break
+            else:
+                rhs = C / dt * T_old + q + b
+                T_cand = solve_banded((1, 1), ab, rhs)
+                if not np.all(np.isfinite(T_cand)):
+                    raise FloatingPointError(f"Non-finite temperature at t={t[step] + dt}")
+                change = np.max(np.abs(T_cand - T_guess))
+                if change < s.tolerance:
+                    T_guess = T_cand
+                    converged = True
+                    break
+                T_guess = s.relaxation * T_cand + (1 - s.relaxation) * T_guess
         all_converged &= converged
-        # Like the MATLAB reference, keep going on non-convergence: a few steps
-        # with a node sitting on the solidus/liquidus kink can cycle. Energy is
-        # still accounted from enthalpy, so the balance check exposes any harm.
+        # On non-convergence keep going (as the MATLAB reference does); the
+        # independent enthalpy balance below exposes any harm.
         iters[step + 1] = it if converged else s.max_iterations
         T = T_guess
 
+        h_new = specific_enthalpy(T, grid, P)
         dE_gen[step + 1] = np.sum(q * grid.volume) * dt
         dE_bc[step + 1] = G_bc * (T[-1] - T_env) * dt
-        dE_node = rho * grid.volume * (specific_enthalpy(T, grid, P) - specific_enthalpy(T_old, grid, P))
+        dE_node = rho * grid.volume * (h_new - h_old)
+        h_old = h_new
         dE_cell[step + 1] = dE_node[cell].sum()
         dE_pcm[step + 1] = dE_node[pcm].sum()
         dE_case[step + 1] = dE_node[case].sum()
@@ -307,4 +356,6 @@ def simulate(
         T_env=T_env,
         converged=all_converged,
         max_iterations=s.max_iterations,
+        heat_W=heat_W,
+        load=load,
     )

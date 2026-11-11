@@ -35,10 +35,27 @@ def test_no_heat_no_change():
 def test_energy_balance_tight(h):
     P = default_params()
     res = simulate(P, lambda t: 9.4e4, 1200.0, h=h, T_env=P.T_initial)
+    # Default enthalpy-Newton scheme: every step converges and energy is
+    # conserved to round-off.
+    assert res.converged and res.unconverged_steps == 0
+    assert res.balance_error_pct < 1e-6
+    assert res.iterations[1:].mean() < 4
+
+
+def test_thesis_scheme_still_available():
+    P0 = default_params()
+    P = P0.with_(solver=replace(P0.solver, scheme="thesis"))
+    res = simulate(P, lambda t: 9.4e4, 600.0, h=60.0, T_env=P.T_initial)
     assert res.balance_error_pct < 0.1
-    # Known limitation of the thesis scheme (fixed in v0.2): a handful of
-    # melt-front steps hit the iteration cap. Keep it to < 2% of steps.
-    assert res.unconverged_steps < 0.02 * (res.t.size - 1)
+
+
+def test_enthalpy_scheme_agrees_with_thesis_scheme():
+    P0 = default_params()
+    Pt = P0.with_(solver=replace(P0.solver, scheme="thesis"))
+    a = simulate(P0, lambda t: 9.4e4, 3600.0, h=60.0, T_env=P0.T_initial)
+    b = simulate(Pt, lambda t: 9.4e4, 3600.0, h=60.0, T_env=P0.T_initial)
+    assert abs(a.T_max.max() - b.T_max.max()) < 1e-3
+    assert abs(a.pcm_fraction[-1] - b.pcm_fraction[-1]) < 1e-3
 
 
 def test_more_cooling_is_cooler():
