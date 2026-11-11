@@ -67,3 +67,14 @@ def test_more_cooling_is_cooler():
 def test_pcm_validation():
     with pytest.raises(ValueError):
         PCM(T_solidus=310, T_liquidus=305)
+
+
+def test_store_every_keeps_peaks_and_saves_memory():
+    P0 = default_params()
+    full = simulate(P0, lambda t: 9.4e4, 600.0, h=60.0, T_env=P0.T_initial)
+    P = P0.with_(solver=replace(P0.solver, store_every=20))
+    thin = simulate(P, lambda t: 9.4e4, 600.0, h=60.0, T_env=P0.T_initial)
+    assert np.array_equal(full.T_max, thin.T_max)
+    assert thin.T.shape[1] < full.T.shape[1] / 10
+    assert np.array_equal(thin.T[:, -1], full.T[:, -1])
+    assert thin.t_T[-1] == full.t[-1]

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+- **Passenger-EV duties** (`btms.ev`): WLTC Class 3b trace (UN GTR 15), road-load vehicle model, pack sizing, a 3× WLTC duty, and a motorway-then-rapid-charge road trip.
+- **Continuous cooling:** h sweeps with fan-law power (P ∝ h^3.75), anchored to the thesis levels. The thesis levels are still available via `thesis_cooling_options()` / `--thesis-levels`.
+- **Chiller:** a coolant setpoint below ambient as a design option, with chiller energy = heat removed ÷ COP.
+- **PCM library** (`btms.materials`): RT28HC, RT31, OM35, RT42, with grade as a design variable alongside thickness.
+- **Robustness:** worst-case resistance = published max × (1 + 20 % margin). Front designs that fail are marked fragile and the front is rebuilt without them.
+- **Fixed:** fan/pump energy now covers event + recovery (it previously covered the event only).
+- **Fixed:** design studies report datasheet C-rate breaches, judged on a 30 s rolling mean.
+- Solver 2.6× faster (direct LAPACK tridiagonal solve, precomputed enthalpy masks). Optional `store_every` cuts memory for long runs.
+- Separate initial and sink temperatures in `simulate_cell`.
+- New `docs/BACKLOG.md`: known limitations and the improvement plan.
+
 ## 0.3.0
 - Design advisor (`btms.design`): sweeps cooling option × PCM thickness for one cell and duty cycle.
 - Feasibility checks peak temperature, in-cell ΔT and recovery (ready for the next event), with a reason recorded for each failure.

@@ -2,11 +2,12 @@
 
 from .cells import CELLS, LG_M50, LG_MJ1, Cell, get_cell, params_for_cell
 from .electrothermal import ElectroThermalLoad, check_limits, constant_current, from_csv, segments, simulate_cell
+from .materials import PCM_LIBRARY, get_pcm
 from .model import SimulationResult, simulate
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "CELLS",
@@ -14,6 +15,7 @@ __all__ = [
     "LG_M50",
     "LG_MJ1",
     "PCM",
+    "PCM_LIBRARY",
     "Cell",
     "ElectroThermalLoad",
     "Geometry",
@@ -27,6 +29,7 @@ __all__ = [
     "default_params",
     "from_csv",
     "get_cell",
+    "get_pcm",
     "params_for_cell",
     "run_scenario",
     "segments",

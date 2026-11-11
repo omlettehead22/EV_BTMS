@@ -105,6 +105,7 @@ class SolverSettings:
     max_iterations: int = 30
     relaxation: float = 0.7  # thesis scheme only
     scheme: str = "enthalpy"
+    store_every: int = 1  # keep full radial profiles every N steps (memory for long runs)
 
     def __post_init__(self) -> None:
         if self.scheme not in ("enthalpy", "thesis"):
