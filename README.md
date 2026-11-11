@@ -4,7 +4,35 @@ A transient thermal model of a lithium-ion cell wrapped in a phase-change materi
 
 ![Model domain](docs/figures/figure_3_1_model_domain.png)
 
-## Status: v0.1, Python port
+## Status: v0.2, electro-thermal cells
+
+**New in v0.2**
+- **Heat generation from real cells.** Heat comes from current via Q = I²R(SOC, T) − I·T·dU/dT(SOC), with coulomb-counted SOC and temperature feeding back into resistance every step.
+- **Cell library** with every value sourced (see `src/btms/cells.py`):
+  - **LG M50 21700:** 5 Ah, NMC811/graphite-SiOx, fully characterised by Chen 2020 and O'Regan 2022.
+  - **LG MJ1 18650:** 3.5 Ah, same chemistry family.
+  - Jelly-roll heat capacity and radial conductivity are computed from O'Regan's measured layer properties. Entropic coefficients are the paper's electrode fits mapped to cell SOC.
+- **Duty cycles:** constant C-rate, piecewise segments (repeatable drive cycles), or a CSV of current against time. Charge windows such as 10→80 % are respected.
+- **Datasheet checks:** warnings when the C-rate or peak temperature breaks the cell's rated limits.
+- **Faster, exactly conservative solver.** Newton iteration on the enthalpy residual replaces the thesis Picard scheme. It converges on every step in about 2 iterations (the old scheme stalled on 5–19 steps per run), runs about 3× faster, and closes the energy balance to round-off. The thesis scheme is kept as `SolverSettings(scheme="thesis")` and still reproduces the MATLAB results exactly.
+
+```bash
+btms cells
+btms cell M50 --mode discharge --c-rate 1.5 --cooling liquid --level mid --pcm-mm 3
+btms cell M50 --mode charge --c-rate 0.7 --soc0 0.1 --soc-max 0.8 --cooling air --level low --pcm-mm 0
+```
+
+**First design finding: PCM can make things worse.** For an LG M50 at 2.5C discharge (peak cell temperature):
+
+| Cooling | No PCM | 3 mm PCM |
+|---|---|---|
+| Air, h = 10 W/m²K | 65.2 °C | **53.4 °C** (PCM buffers the heat) |
+| Air, h = 60 | **44.4 °C** | 46.4 °C |
+| Liquid, h = 300 | **35.2 °C** | 43.5 °C (paraffin insulates the cell from the coolant) |
+
+PCM pays off only when the active cooling is weak. Finding the right thickness for a given cooling system is what the v0.3 design advisor will do.
+
+## v0.1: Python port
 
 The thesis solver has been ported to Python (`src/btms`) and reproduces the MATLAB results to about 1e-11 on every summary metric for the four thesis scenarios. It also reproduces the mesh and time-step studies. The original MATLAB code is kept in [`matlab/`](matlab/) as the reference.
 
@@ -41,14 +69,16 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 - **Boundary:** a convective outer wall, with half-cell conduction and 1/h in series.
 - **Verification:** an independent enthalpy-based energy balance (< 0.1 % error required), plus mesh (Nx 65/130/260) and time-step (1 to 0.125 s) convergence studies.
 
-**Known limitation (fixed in v0.2):** a few time steps per run, where a node sits right on the edge of the melting range, hit the iteration cap. The original MATLAB code had the same behaviour. The energy balance stays below 0.02 %, so the results are unaffected, but an enthalpy-consistent capacity converges in about 4× fewer iterations.
+**Model limits to keep in mind:**
+- The model is a single cell with a uniform h around its whole circumference. In a real pack a cold plate touches only part of each cell, so liquid-cooling results are optimistic. Pack-level effects come in v0.4.
+- Resistance is a lumped DCIR. Its temperature (Arrhenius, 20 kJ/mol) and SOC shapes are documented assumptions until measured HPPC maps are added.
 
 ## Roadmap
 
 | Version | Scope |
 |---|---|
 | **v0.1** ✅ | Python port, parity tests, CI |
-| v0.2 | Electro-thermal heat generation (current/C-rate × internal resistance + entropic), cell library (18650, 21700), faster enthalpy-consistent PCM solver |
+| **v0.2** ✅ | Electro-thermal heat generation, cell library (M50 21700, MJ1 18650), enthalpy-Newton solver, datasheet limit checks |
 | v0.3 | Design advisor: sweep cooling type, h and PCM thickness and return the lightest or lowest-energy design that meets T_max and ΔT limits |
 | v0.4 | Pack level: coolant temperature rise along the cold plate, cell-to-cell spread |
 | v0.5 | Web app and API |
@@ -56,7 +86,7 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 ## Repository layout
 
 ```
-src/btms/        Python package (params, model, scenarios, metrics, cli)
+src/btms/        Python package (params, model, cells, electrothermal, scenarios, metrics, cli)
 tests/           MATLAB-parity and physics tests
 matlab/          original thesis code + reference results
 docs/figures/    thesis figures

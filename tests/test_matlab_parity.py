@@ -15,9 +15,15 @@ from btms.scenarios import Scenario
 RESULTS = Path(__file__).resolve().parents[1] / "matlab" / "results"
 
 
+def thesis_params():
+    """Default parameters with the original MATLAB nonlinear scheme."""
+    P = default_params()
+    return P.with_(solver=replace(P.solver, scheme="thesis"))
+
+
 @pytest.fixture(scope="module")
 def python_summary():
-    P = default_params()
+    P = thesis_params()
     return summary_table([(sc, run_scenario(P, sc)) for sc in thesis_scenarios(P)]).set_index("Scenario")
 
 
@@ -30,7 +36,7 @@ def test_summary_matches_matlab(python_summary):
 
 def test_time_step_study_matches_matlab():
     ref = pd.read_csv(RESULTS / "time_step_verification.csv")
-    P0 = default_params()
+    P0 = thesis_params()
     sc = Scenario("charge-liquid-mid", "charge", "liquid", "mid", P0.T_coolant)
     for dt, T_ref in zip(ref.TimeStep_s[:2], ref.PeakTemperature_C[:2]):
         P = P0.with_(solver=replace(P0.solver, dt=dt))
@@ -40,7 +46,7 @@ def test_time_step_study_matches_matlab():
 @pytest.mark.parametrize("n_cells", [65, 130, 260])
 def test_mesh_study_matches_matlab(n_cells):
     ref = pd.read_csv(RESULTS / "mesh_verification.csv").set_index("Nx")
-    P0 = default_params()
+    P0 = thesis_params()
     P = P0.with_(geometry=replace(P0.geometry, n_cells=n_cells))
     sc = Scenario("mesh", "charge", "air", "high", P0.T_ambient_mild)
     res = run_scenario(P, sc, duration=600, heat_source=lambda t: 9.4e4)

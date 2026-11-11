@@ -13,6 +13,13 @@ T_LIMIT_C = 40.0
 
 
 def summarise(sc: Scenario, res: SimulationResult) -> dict:
+    """Thesis-table metrics for a named thesis scenario."""
+    labels = {"Scenario": sc.name, "ScenarioType": sc.event, "CoolingType": sc.cooling, "CoolingLevel": sc.level}
+    return summarise_result(res, labels, aux_power_W=sc.aux_power())
+
+
+def summarise_result(res: SimulationResult, labels: dict | None = None, aux_power_W: float = 0.0) -> dict:
+    """Metrics for any simulation result; ``labels`` are prepended to the row."""
     t = res.t
     T = res.T_max - KELVIN
     dT = res.dT_cell
@@ -29,14 +36,11 @@ def summarise(sc: Scenario, res: SimulationResult) -> dict:
         j = above[0]
         t40 = t[0] if j == 0 else t[j - 1] + (T_LIMIT_C - T[j - 1]) * (t[j] - t[j - 1]) / (T[j] - T[j - 1])
 
-    P_aux = sc.aux_power()
+    P_aux = aux_power_W
     E_aux = P_aux * dur
     Eg, Er, Es = res.E_generated, res.E_rejected, res.E_stored
     return {
-        "Scenario": sc.name,
-        "ScenarioType": sc.event,
-        "CoolingType": sc.cooling,
-        "CoolingLevel": sc.level,
+        **(labels or {}),
         "Duration_s": dur,
         "T_initial_C": T[0],
         "T_peak_C": T[i_peak],

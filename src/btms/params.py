@@ -88,10 +88,27 @@ DEFAULT_AUX_POWER = {
 
 @dataclass(frozen=True)
 class SolverSettings:
+    """Time stepping and PCM nonlinear iteration.
+
+    scheme:
+      "enthalpy" (default) - Newton iteration on the enthalpy-form residual.
+          Energy is conserved to machine precision and it converges in ~2
+          iterations per step, including when a node sits on the solidus or
+          liquidus kink.
+      "thesis" - the original MATLAB scheme: under-relaxed Picard iteration
+          on the apparent heat capacity. Kept for bit-for-bit parity with the
+          thesis results; a few melt-front steps can hit max_iterations.
+    """
+
     dt: float = 0.5  # s
-    tolerance: float = 1e-7  # K, Picard convergence on PCM capacity
+    tolerance: float = 1e-7  # K, max temperature update for convergence
     max_iterations: int = 30
-    relaxation: float = 0.7
+    relaxation: float = 0.7  # thesis scheme only
+    scheme: str = "enthalpy"
+
+    def __post_init__(self) -> None:
+        if self.scheme not in ("enthalpy", "thesis"):
+            raise ValueError("scheme must be 'enthalpy' or 'thesis'")
 
 
 @dataclass(frozen=True)
