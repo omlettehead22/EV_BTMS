@@ -22,9 +22,9 @@ packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell adv
 
 | Pick | Design | Outlet-cell peak | Mass added | Aux energy |
 |---|---|---|---|---|
-| Lightest | forced air 0.15 g/s per cell | 40.5 °C | +1.8 % | 0.26 % |
-| Lowest energy | bottom plate 0.02 g/s per cell | 41.5 °C | +8.2 % | 0.054 % |
-| Balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.9 °C | +7.2 % | 0.055 % |
+| Lightest | forced air 0.15 g/s per cell | 39.8 °C | +1.8 % | 0.25 % |
+| Lowest energy | bottom plate 0.02 g/s per cell | 40.6 °C | +8.2 % | 0.05 % |
+| Balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.4 °C | +7.2 % | 0.05 % |
 
 **What it shows**
 - **Once pump energy is physical, liquid cooling costs very little to run** (about 0.05 % of the energy moved, half pump and half radiator fan, against 0.26 % for the lightest air design). The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
@@ -76,17 +76,17 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 
 | Cooling | Filler | Inlet cell peak | Outlet cell peak | Cell-to-cell | In-cell ΔT | Pump / fan per cell |
 |---|---|---|---|---|---|---|
-| none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
-| forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.0 °C | 46.7 °C | 5.7 K | **5.9 K** | 7.9 mW |
-| bottom plate | RT42-EG | 39.0 °C | 41.7 °C | 2.8 K | 5.2 K | 7.9 mW |
-| side ribbon (3.5 mm gap) | air | **32.1 °C** | 40.8 °C | 8.7 K | 3.2 K | 7.9 mW |
-| side ribbon (3.5 mm gap) | RT31 | 31.6 °C | **35.9 °C** | 4.3 K | 3.0 K | 7.9 mW |
+| none | air | 68.5 °C | 68.5 °C | 0 K | 0 K | 0 |
+| forced air | air | 41.0 °C | 44.2 °C | 3.2 K | 1.5 K | 169 mW |
+| bottom plate | air | 41.5 °C | 46.6 °C | 5.1 K | **5.8 K** | 7.9 mW |
+| bottom plate | RT42-EG | 39.4 °C | 41.8 °C | 2.4 K | 5.2 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | air | **33.0 °C** | 41.1 °C | 8.1 K | 3.3 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | RT31 | 32.3 °C | **36.1 °C** | 3.7 K | 3.5 K | 7.9 mW |
 
 **What it shows**
-- **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 9 K at the inlet even on a quarter of the circumference and 75 % of the height, and its in-cell ΔT is 3.2 K against 5.9 K (2D radius × height model since v0.4.8). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
-- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by half (8.7 → 4.3 K).
+- **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 68 °C, where the free-air single-cell model said about 41 °C.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 8 K at the inlet even on a quarter of the circumference and 75 % of the height, and its in-cell ΔT is 3.3 K against 5.8 K (2D radius × height model since v0.4.8). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by more than half (8.1 → 3.7 K).
 - **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
 
 **Limits of the module model:**
@@ -264,6 +264,7 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.8** ✅ | 2D (radius × height) bottom-plate model |
 | **v0.4.9** ✅ | Side ribbon on a strip of the can (radius × angle model) |
 | **v0.4.10** ✅ | Cold-weather cell model: temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
+| **v0.4.11** ✅ | LG M50 equivalent circuit derived from a physics model (PyBaMM + ORegan2022); worst-case checks scale every loss term |
 | v0.5 | Web app and API |
 
 ## Repository layout
