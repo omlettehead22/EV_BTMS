@@ -383,3 +383,22 @@ def test_bottom_plate_2d_with_pcm_and_edge():
         assert r.res.pcm_fraction.max() > 0  # the PCM melts somewhere
     assert edge.T_peak_C < inner.T_peak_C
     assert edge.res.Q_sinks["wall"][-1] > 0
+
+
+def test_ribbon_strip_contact():
+    """Radius x angle model: a full wrap matches the radial model; a strip runs
+    hotter, with the far side of the can warmest, and the result converges."""
+    full = Module(RIBBON_GAP, None, SideRibbon(contact_fraction=1.0))
+    radial = steady(full, nz=0, n_theta=0, hours=0.9)
+    wrap = steady(full, n_theta=12, hours=0.9)
+    assert wrap.T_peak_C == pytest.approx(radial.T_peak_C, abs=0.02)
+    strip = Module(RIBBON_GAP, None, SideRibbon(contact_fraction=0.25))
+    coarse, fine = steady(strip, n_theta=12, hours=0.9), steady(strip, n_theta=24, hours=0.9)
+    assert coarse.T_peak_C > wrap.T_peak_C + 0.5
+    assert coarse.T_peak_C == pytest.approx(fine.T_peak_C, abs=0.05)
+    i = np.searchsorted(coarse.res.t, 2700)
+    assert coarse.res.dT_cell[i] > 1.5 * radial.res.dT_cell[i]
+    for r in (wrap, coarse):
+        assert r.res.balance_error_pct < 1e-6
+        # Heat into the coolant matches generation at quasi-steady state (whole-cell accounting).
+        assert r.Q_coolant[i] == pytest.approx(r.res.heat_W[i], rel=0.01)

@@ -529,6 +529,7 @@ def simulate_module(
     edge: bool = False,
     coolant_mass: bool = True,
     nz: int = 16,
+    n_theta: int = 12,
 ) -> ModuleResult:
     """Simulate one cell of the module (the coolant-outlet cell by default).
 
@@ -538,6 +539,9 @@ def simulate_module(
     share of the channel); False reproduces the steady balance of v0.4.6.
     Bottom plates are solved on a radius x height grid with ``nz`` layers
     (``nz=0``: the v0.4.7 radial model with a quasi-steady axial estimate).
+    Side ribbons are solved on a radius x angle grid with ``n_theta`` slices
+    over half the circumference (``n_theta=0``: the radial model with the
+    contact spread evenly round the can).
     """
     T_amb = T_ambient_C + KELVIN
     base = (base or Params()).with_(T_initial=T_amb)
@@ -622,6 +626,42 @@ def simulate_module(
             res.Q_sinks["coolant"],
             res.T_max.copy(),
             dT_axial,
+            edge,
+        )
+    if isinstance(cooling, SideRibbon) and n_theta > 0:
+        # Radius x angle field (v0.4.9): the ribbon cools a strip of the can.
+        from .model2d import Strip, simulate_rtheta
+
+        strip = Strip(n_theta=n_theta, k_inplane_cell=cell.k_axial)
+        R_film = cooling.tim.R + 1.0 / cooling.coolant.h
+        wall = None
+        if edge:
+            wall = (module.wall.fraction * 2.0 * math.pi * module.layout.unit_radius(cell), module.wall.U)
+        res, _ = simulate_rtheta(
+            P,
+            strip,
+            cooling.contact_fraction,
+            1.0 / R_film,
+            cooling.tube.height_fraction * L,
+            duration,
+            load,
+            T_sink,
+            T_amb,
+            wall,
+        )
+        T_coolant = res.T_sinks["coolant"].copy()
+        T_coolant[0] = T_coolant[1] if T_coolant.size > 1 else T_coolant[0]
+        return ModuleResult(
+            cell,
+            module,
+            position,
+            res,
+            load,
+            T_amb,
+            T_coolant,
+            res.Q_sinks["coolant"],
+            res.T_max.copy(),
+            np.zeros_like(res.t),
             edge,
         )
     res = simulate(P, duration=duration, h=h_outer, T_env=T_amb, load=load, sinks=sinks)
