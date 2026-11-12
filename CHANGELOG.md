@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.11
+- **LG M50 equivalent circuit** (`cells.LG_M50_ECM`, now on `LG_M50`): derived, not measured. PyBaMM's DFN with the ORegan2022 parameter set (measured on the LG M50T, with temperature dependence) was run through synthetic HPPC tests at 25, 10, 0 and −10 °C, and the PF cell's circuit fitted to them (`validation/derive_m50_ecm.py`). OCV table `data/lgm50_oregan2022_ocv.csv`.
+  - Pulse overpotential within 3.6–4.7 % (median) at every temperature; replay within 21–23 mV above 10 % SOC.
+  - Irreversible heat within 0.94–1.13× of the DFN on 0.5–1.4C discharges and a pulsed profile at 0–25 °C; the lumped model it replaces was 0.92–1.42× (over-predicting pulsed loads by 24–42 %).
+  - The M50 now stops at its voltage cut-off. The knee comes late in the cold (up to 0.75 Ah after the DFN at 0 °C 1.4C); the lumped model had no cut-off.
+  - `LG_M50_LUMPED` (CLI key `M50-LUMPED`) keeps the previous model.
+- **Fixed:** the worst-case resistance re-check only scaled the lumped R0, so for equivalent-circuit cells (the PF, now the M50) it did nothing. `cells.with_R0` now scales R0, the slow branch and the charge-transfer term together.
+- **Effect:** same picks; M50 road-trip peaks 0.5–0.9 K lower.
+
+## 0.4.10
+- **Cold-weather cell model** (Panasonic NCR18650PF): two temperature laws identified from the 0.9 A discharge-and-rest steps between the HPPC pulse sets at 25, 10, 0 and −10 °C (identification data, not in the validation set; `identify_panasonic.cold_laws`):
+  - the low-SOC rise grows in the cold (`ECM.Ea_soc`, 20.7 kJ/mol), so the voltage knee arrives earlier: the cold capacity loss;
+  - the slow branch follows its own Arrhenius law (`ECM.Ea_Rd`, 26.8 kJ/mol) instead of the charge-transfer kinetics (45 kJ/mol), which made it about twice too large at 0 to −10 °C.
+  - R_d and τ_d re-calibrated on the same single test with these laws (28.4 mΩ, 405 s).
+- **Blind validation (48 tests), predictive mode:** within 1 K 79 % → 88 %; −20 °C median 1.28 → 0.73 K; cold voltage error 177/84/40 → 70/53/34 mV at −20/−10/0 °C; overall median 0.63 → 0.65 K. In the cold the model now under-predicts heat by 7–10 % (worst −3.5 K) where it used to over-predict (worst +3.4 K). Thermal mode unchanged.
+- **Not changed:** NCA entropic heat. Published NCA/graphite profiles disagree on the sign over the SOC range that matters, so no curve is applied (see docs/VALIDATION.md).
+- The four combinations of the two laws were compared on the blind tests before choosing; only the M50/MJ1-independent PF electrical model changes.
+
+## 0.4.9
+- **Side ribbon on a strip of the can** (`model2d.simulate_rtheta`, `model2d.Strip`): ribbons are now solved on a radius × angle grid (12 slices over half the circumference, by symmetry). The ribbon cools the can over its contact share; heat reaches it round the circumference along the spiral winding (in-plane conductivity, as along the height) and through the steel can (0.25 mm, 50 W/m·K, assumption). `simulate_module(..., n_theta=0)` keeps the radial model with the contact spread evenly.
+- The 2D bottom-plate and ribbon grids share one solver core (`model2d._run`), which reports heat and sink flows per whole cell when the grid covers a symmetric part.
+- **Checked:** a full wrap matches the radial model within 0.02 K; 12 and 24 slices agree within 0.05 K; quasi-steady heat into the coolant matches generation; energy balance < 1e-6 %.
+- **Effect:** ribbon peaks rise 0.1–1.0 K and the in-cell spread 0.5–1.6 K (the far side of the can runs warm). All ribbon designs that passed still pass. At 1.5C the lowest-energy pick moves to the 0.05 g/s ribbon (the 0.02 g/s RT42 design no longer survives worst-case resistance). Road-trip study: about 3 minutes.
+
+## 0.4.8
+- **2D bottom-plate model** (`packtherm.model2d`): bottom plates are now solved on an axisymmetric radius × height grid (16 layers by default) with the winding's axial conductivity, the roll-end resistance, interface and coolant film at the base, an adiabatic top and, for edge cells, the module wall. Same enthalpy–Newton scheme as the radial model; the sparse factorisation is reused until a PCM node changes phase band, which makes it about 15× faster than refactorising every iteration. `simulate_module(..., nz=0)` keeps the v0.4.7 radial model with its quasi-steady axial estimate.
+- **Checked** against the exact steady solution for a base-cooled cell (top and top-to-base spread within 1 % and 3 % at 8 and 16 layers), with PCM filler and with the edge wall; energy balance closes to 1e-6 %.
+- **Effect:** at 1.5C the bottom-plate peaks fall 0.1–0.45 K and the in-cell spread 0.15–0.7 K (the estimate was conservative, as intended). New finding: a chiller pulling a hot-soaked pack down through its base opens top-to-bottom gradients of up to 6 K while it does so, so three chilled bottom-plate designs now fail the 5 K in-cell limit on the 35 °C road trip. Studies with bottom plates take about twice as long.
+
+## 0.4.7
+- **Coolant thermal mass:** the coolant held in each cell's share of the channel (`module.coolant_holdup_kg`, from the v0.4.3 plate and ribbon geometry, about 1 g per M50 cell) stores heat. Energy balance M·cp·dTc/dt = (ṁ·cp/frac)(T_in − Tc) + ΣG(T − Tc), solved implicitly each step, so the outlet coolant lags heat input by about M/ṁ (about 20 s at the reference flow). `simulate_module(..., coolant_mass=False)` restores the steady balance. The hardware mass model now uses the same holdup function.
+- **Effect:** peaks on the long M50 duties move by under 0.1 K and recovery by about a minute; the term matters for short pulses and start-up.
+
+## 0.4.6
+- **Edge cells** (`simulate_module(..., edge=True)`, `module.Wall`): a cell on the module wall exchanges heat with ambient through a third of its share (it has 4 neighbours instead of 6), at U = 5 W/m²K (assumption). `Wall(fraction=0.5)` for corner cells.
+- **Advisor** (`ModuleStudy.edge_cells`, on by default): edge cells at both ends of the channel are simulated; feasibility uses the hottest of interior and edge cells, and the cell-to-cell spread is hottest minus coolest. New columns `T_peak_interior_C`, `T_peak_edge_outlet_C`, `T_peak_edge_inlet_C`, `hottest_cell`.
+- **Effect (M50, 35 °C road trip):** cooled modules' edge cells run 0.1–0.8 K cooler than interior cells; a sealed module's edge cells run 8 K cooler; in chilled designs the edge cells are the hottest, by hundredths of a degree. Same picks. Studies take about 60 % longer (two more cells per design).
+
+## 0.4.5
+- **Whole-loop pump power.** `Coolant.dp_loop_ref_Pa` (30 kPa) adds the rest of the loop (hoses, manifolds, chiller, radiator) to the module channels (20 kPa); 50 kPa in total matches the 0.5–0.6 bar small electric coolant pumps are rated for at 20–25 L/min. Pump efficiency 0.5 → 0.3, from the same datasheets (Pierburg CWA50, Rheinmetall CWA 50). Pump power per cell 1.9 → 7.9 mW (about 26 W for a 60 kWh M50 pack).
+- **Radiator fan energy** (`ModuleResult.radiator_fan_energy_Wh`): 3 % of the heat the coolant carries to the radiator, whenever the chiller is not running (assumption).
+- **Effect:** liquid cooling costs about 0.05 % of the energy moved on the 35 °C road trip (was about 0.001 %), still about 5× less than the lightest air design. The bottom plate and the ribbon now tie on energy, so the lowest-energy pick moves to the bottom plate; the ribbon stays the balanced pick.
+
 ## 0.4.4
 - **Chiller accounting** (`packtherm.module.Chiller`):
   - COP falls with ambient: a share (0.42) of the Carnot COP between an evaporator 5 K below the set-point and a condenser 15 K above ambient. About 3.0 at 35 °C with a 15 °C set-point (the old fixed value), 2.4 at 45 °C, 4.0 at 25 °C. `--cop` still fixes it.

@@ -3,7 +3,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from packtherm.cells import LG_M50, LG_MJ1, get_cell, nmc811_graphite_dUdT, nmc811_jellyroll_properties, params_for_cell
+from packtherm.cells import (
+    LG_M50,
+    LG_M50_LUMPED,
+    LG_MJ1,
+    get_cell,
+    nmc811_graphite_dUdT,
+    nmc811_jellyroll_properties,
+    params_for_cell,
+)
 from packtherm.cli import main
 from packtherm.electrothermal import (
     ElectroThermalLoad,
@@ -16,7 +24,7 @@ from packtherm.params import KELVIN
 
 T25 = 25 + KELVIN
 # Constant-resistance M50: no SOC or temperature dependence, for hand checks.
-FLAT = replace(LG_M50, Ea_R=0.0, soc_factor=lambda soc: 1.0)
+FLAT = replace(LG_M50_LUMPED, Ea_R=0.0, soc_factor=lambda soc: 1.0)
 
 
 def test_joule_heat_matches_hand_calculation():

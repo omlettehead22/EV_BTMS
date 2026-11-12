@@ -6,9 +6,9 @@ A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. I
 
 ## Module design advisor (v0.4.1)
 
-`packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
+`packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on its **hottest cell**: the interior cell at the coolant outlet, or since v0.4.6 a cell on the module wall (edge cell) if that runs hotter. The inlet and edge cells give the hottest-to-coolest spread, which can be limited (`--cell-to-cell-max`).
 
-- **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). The old thesis anchors overstated liquid pumping about 200×.
+- **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). Since v0.4.5 the pump covers the whole loop (module 20 kPa + rest of loop 30 kPa, efficiency 0.3, from Pierburg and Rheinmetall pump data) and the radiator fan is charged at 3 % of the heat it rejects.
 - **Mass** = filler + cooling hardware built up from geometry (v0.4.3, below). The gap's volume cost is reported as `volume_overhead_pct`.
 - Front, worst-case-resistance re-check and picks are shared with the single-cell advisor, which stays available as `--level cell`.
 
@@ -22,11 +22,12 @@ packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell adv
 
 | Pick | Design | Outlet-cell peak | Mass added | Aux energy |
 |---|---|---|---|---|
-| Lightest | forced air 0.15 g/s per cell | 40.5 °C | +1.8 % | 0.26 % |
-| Lowest energy / balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.9 °C | +7.2 % | 0.001 % |
+| Lightest | forced air 0.15 g/s per cell | 39.8 °C | +1.8 % | 0.25 % |
+| Lowest energy | bottom plate 0.02 g/s per cell | 40.6 °C | +8.2 % | 0.05 % |
+| Balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.4 °C | +7.2 % | 0.05 % |
 
 **What it shows**
-- **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
+- **Once pump energy is physical, liquid cooling costs very little to run** (about 0.05 % of the energy moved, half pump and half radiator fan, against 0.26 % for the lightest air design). The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
 - **A PCM that melts below ambient is a liability.** At 35 °C, RT31 never re-solidifies and every RT31 design fails on recovery; RT42 still works.
 - **A chiller holds every cell at 35 °C** but costs 1.2–2.1 % of the energy moved, a thousand times the pump. Since v0.4.4 that includes heat leaking in from the hot day and a COP that falls with ambient (about 3.0 at 35 °C, 2.4 at 45 °C); the chiller runs during the drive and hands back to the radiator afterwards.
 
@@ -75,22 +76,22 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 
 | Cooling | Filler | Inlet cell peak | Outlet cell peak | Cell-to-cell | In-cell ΔT | Pump / fan per cell |
 |---|---|---|---|---|---|---|
-| none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
-| forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 1.9 mW |
-| bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 1.9 mW |
-| side ribbon (3.5 mm gap) | air | **30.5 °C** | 40.0 °C | 9.5 K | 1.8 K | 1.9 mW |
-| side ribbon (3.5 mm gap) | RT31 | 30.4 °C | **35.6 °C** | 5.2 K | 2.2 K | 1.9 mW |
+| none | air | 68.5 °C | 68.5 °C | 0 K | 0 K | 0 |
+| forced air | air | 41.0 °C | 44.2 °C | 3.2 K | 1.5 K | 169 mW |
+| bottom plate | air | 41.5 °C | 46.6 °C | 5.1 K | **5.8 K** | 7.9 mW |
+| bottom plate | RT42-EG | 39.4 °C | 41.8 °C | 2.4 K | 5.2 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | air | **33.0 °C** | 41.1 °C | 8.1 K | 3.3 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | RT31 | 32.3 °C | **36.1 °C** | 3.7 K | 3.5 K | 7.9 mW |
 
 **What it shows**
-- **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet even over 75 % of the height, and its in-cell ΔT is 1.8 K against 6.4 K (an upper-bound axial estimate). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
-- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by almost half (9.5 → 5.2 K).
+- **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 68 °C, where the free-air single-cell model said about 41 °C.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 8 K at the inlet even on a quarter of the circumference and 75 % of the height, and its in-cell ΔT is 3.3 K against 5.8 K (2D radius × height model since v0.4.8). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by more than half (8.1 → 3.7 K).
 - **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
 
 **Limits of the module model:**
-- The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
-- Coolant has no thermal mass, and cells at the edge of a module are not modelled.
+- Bottom plates are solved on a radius × height grid (v0.4.8) and side ribbons on a radius × angle grid (v0.4.9), each a 2D slice of a 3D field.
+- Coolant thermal mass (v0.4.7) is lumped per cell's share of the channel (about 20 s lag at the reference flow). Edge cells (v0.4.6) see the wall through a single assumed U-value.
 - Flow, Δp, h_ref, the thermal interface, the roll-end resistance and the hardware dimensions are labelled assumptions in `module.py` and `hardware.py`.
 
 ## Validated against measured temperatures (v0.3.2)
@@ -257,7 +258,13 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.2** ✅ | Rename to PackTherm, new model picture, housekeeping |
 | **v0.4.3** ✅ | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
 | **v0.4.4** ✅ | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
-| v0.4.x | Further accuracy updates (pack plumbing, edge cells, coolant thermal mass) |
+| **v0.4.5** ✅ | Whole-loop pump power and radiator fan energy |
+| **v0.4.6** ✅ | Edge cells on the module wall in the model and the advisor |
+| **v0.4.7** ✅ | Coolant thermal mass in the channel |
+| **v0.4.8** ✅ | 2D (radius × height) bottom-plate model |
+| **v0.4.9** ✅ | Side ribbon on a strip of the can (radius × angle model) |
+| **v0.4.10** ✅ | Cold-weather cell model: temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
+| **v0.4.11** ✅ | LG M50 equivalent circuit derived from a physics model (PyBaMM + ORegan2022); worst-case checks scale every loss term |
 | v0.5 | Web app and API |
 
 ## Repository layout

@@ -33,7 +33,7 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from .cells import Cell
+from .cells import Cell, with_R0
 from .electrothermal import CurrentProfile, check_limits, segments, simulate_cell
 from .materials import PCM_LIBRARY, melt_midpoint_C
 from .params import DEFAULT_AUX_POWER, DEFAULT_H, KELVIN, Params
@@ -264,7 +264,7 @@ def evaluate_design(
     """Simulate one design and return its metrics row."""
     if grade is None or pcm_mm == 0:
         grade, pcm_mm = None, 0.0
-    cell = study.cell if R0 is None else replace(study.cell, R0_25C=R0)
+    cell = study.cell if R0 is None else with_R0(study.cell, R0)
     duty = study.duty
     req = study.requirements
     T_amb = req.T_env_C + KELVIN

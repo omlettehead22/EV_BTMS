@@ -9,11 +9,14 @@ Terminal voltage (current I > 0 on discharge):
   lumped Butler-Volmer form, eta_ss = A(T) asinh(I / (2 I0(T))) with
   A = gamma 2RT/F, so the apparent resistance falls as current rises and
   climbs steeply in the cold. It relaxes to eta_ss with time constant tau_ct.
-* On discharge all three are scaled by a low-SOC factor 1 + soc_a exp(-SOC/soc_b)
-  (identified from discharge pulses, so not applied while charging).
+* On discharge all three are scaled by a low-SOC factor
+  1 + soc_a(T) exp(-SOC/soc_b) (identified from discharge pulses, so not
+  applied while charging). soc_a is Arrhenius in temperature when Ea_soc is
+  set, which makes the voltage knee arrive earlier in the cold.
 * V_d: a slow (diffusion) RC branch with resistance R_d(T) and time
-  constant tau_d. R_d scales with the small-signal charge-transfer
-  resistance so its temperature dependence comes from the same kinetics.
+  constant tau_d. With Ea_Rd set, R_d is Arrhenius with its own activation
+  energy; otherwise it scales with the small-signal charge-transfer
+  resistance.
 
 Irreversible heat is I (OCV - V), so every loss term heats the cell.
 Discharge stops at V_min; charging switches from constant current to
@@ -50,10 +53,13 @@ class ECM:
     # Low-SOC rise of all overpotentials: factor = 1 + soc_a exp(-SOC / soc_b).
     soc_a: float = 0.0
     soc_b: float = 0.08
+    Ea_soc: float = 0.0  # J/mol, temperature dependence of soc_a
+    Ea_Rd: float | None = None  # J/mol; None = follow the charge-transfer kinetics
     sources: tuple[str, ...] = field(default=())
 
-    def soc_factor(self, soc: float) -> float:
-        return 1.0 + self.soc_a * math.exp(-max(soc, 0.0) / self.soc_b)
+    def soc_factor(self, soc: float, T: float = T_REF) -> float:
+        a = self.soc_a * math.exp(self.Ea_soc / R_GAS * (1.0 / T - 1.0 / T_REF))
+        return 1.0 + a * math.exp(-max(soc, 0.0) / self.soc_b)
 
     def ocv(self, soc: float) -> float:
         """OCV from the table; linear extrapolation (slope of the last 5 %) outside it."""
@@ -82,6 +88,8 @@ class ECM:
         return self.A(T) / (2.0 * self.I0(T))
 
     def Rd(self, T: float) -> float:
+        if self.Ea_Rd is not None:
+            return self.Rd_25C * math.exp(self.Ea_Rd / R_GAS * (1.0 / T - 1.0 / T_REF))
         return self.Rd_25C * self.R_ct_small_signal(T) / self.R_ct_small_signal(T_REF)
 
 
@@ -97,7 +105,7 @@ class ECMState:
         e1 = math.exp(-dt / ecm.tau_ct)
         e2 = math.exp(-dt / ecm.tau_d)
         # The low-SOC rise was identified on discharge pulses; apply it on discharge only.
-        f = ecm.soc_factor(soc) if current > 0 else 1.0
+        f = ecm.soc_factor(soc, T) if current > 0 else 1.0
         eta = self.eta_ct * e1 + f * ecm.eta_ss(current, T) * (1.0 - e1)
         vd = self.V_d * e2 + f * ecm.Rd(T) * current * (1.0 - e2)
         V = ecm.ocv(soc) - current * f * ecm.R0(T) - eta - vd

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -195,6 +195,48 @@ class Cell:
 
 _RHO_JR, _CP_JR, _K_JR = nmc811_jellyroll_properties()
 
+
+def _load_ocv_table(name: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    from importlib import resources
+
+    text = resources.files("packtherm").joinpath(f"data/{name}").read_text()
+    rows = [line.split(",") for line in text.splitlines() if line and not line.startswith(("#", "soc"))]
+    soc, ocv = zip(*((float(a), float(b)) for a, b in rows))
+    return soc, ocv
+
+
+_M50_SOC, _M50_OCV = _load_ocv_table("lgm50_oregan2022_ocv.csv")
+
+# v0.4.11: equivalent circuit for the M50 DERIVED from a physics model, not from
+# cell tests: PyBaMM's DFN with the ORegan2022 parameter set (measured on the LG
+# M50T, with temperature dependence) was run through synthetic HPPC tests at
+# 25, 10, 0 and -10 degC (10 s pulses at 0.2-3C, C/3 steps with 1 h rests), and
+# the same circuit as the NCR18650PF fitted to them (validation/derive_m50_ecm.py).
+# Pulse overpotential within 3.6-4.7 % median; irreversible heat within 0.94-1.13x
+# of the DFN on 0.5-1.4C discharges and a pulsed profile at 0-25 degC (the lumped
+# model it replaces: 0.92-1.42x). The knee comes late in the cold: cut-off up to
+# 0.75 Ah after the DFN at 0 degC 1.4C. Measured M50 data would replace this.
+LG_M50_ECM = ECM(
+    ocv_soc=_M50_SOC,
+    ocv_V=_M50_OCV,
+    R0_25C=0.0131,
+    Ea_R0=11.4e3,
+    I0_25C=4.93,
+    Ea_I0=38.9e3,
+    gamma=1.335,
+    tau_ct=13.5,
+    Rd_25C=0.0069,
+    tau_d=147.0,
+    Ea_Rd=38.0e3,
+    V_max=4.2,
+    V_min=2.5,
+    cv_cutoff_A=0.05,
+    soc_a=2.52,
+    soc_b=0.0795,
+    Ea_soc=0.0,
+    sources=("ORegan2022", "PyBaMM"),
+)
+
 LG_M50 = Cell(
     name="LG INR21700 M50",
     form_factor="21700",
@@ -213,7 +255,11 @@ LG_M50 = Cell(
     T_max_charge_C=50.0,
     T_max_discharge_C=60.0,
     sources=("BD-M50", "ORegan2022", "Chen2020"),
+    ecm=LG_M50_ECM,
 )
+
+# The v0.4.10 lumped-resistance M50 (I^2 R with an Arrhenius DCIR), for comparison.
+LG_M50_LUMPED = replace(LG_M50, name="LG INR21700 M50 (lumped DCIR)", ecm=None)
 
 LG_MJ1 = Cell(
     name="LG INR18650 MJ1",
@@ -238,7 +284,21 @@ LG_MJ1 = Cell(
     sources=("BD-MJ1", "MJ1-DS", "ORegan2022"),
 )
 
-CELLS: dict[str, Cell] = {"M50": LG_M50, "MJ1": LG_MJ1}
+CELLS: dict[str, Cell] = {"M50": LG_M50, "M50-LUMPED": LG_M50_LUMPED, "MJ1": LG_MJ1}
+
+
+def with_R0(cell: Cell, R0: float) -> Cell:
+    """The cell with its resistance scaled to R0 (lumped DCIR reference).
+
+    For an equivalent-circuit cell every loss term scales by R0 / R0_25C: the
+    ohmic and slow-branch resistances, and the charge-transfer term through
+    I0 (its small-signal resistance is inversely proportional to I0).
+    """
+    f = R0 / cell.R0_25C
+    if cell.ecm is None:
+        return replace(cell, R0_25C=R0)
+    e = cell.ecm
+    return replace(cell, R0_25C=R0, ecm=replace(e, R0_25C=e.R0_25C * f, Rd_25C=e.Rd_25C * f, I0_25C=e.I0_25C / f))
 
 
 def get_cell(key: str) -> Cell:
@@ -274,15 +334,6 @@ def params_for_cell(
 # ---------------------------------------------------------------------------
 
 
-def _load_ocv_table(name: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    from importlib import resources
-
-    text = resources.files("packtherm").joinpath(f"data/{name}").read_text()
-    rows = [line.split(",") for line in text.splitlines() if line and not line.startswith(("#", "soc"))]
-    soc, ocv = zip(*((float(a), float(b)) for a, b in rows))
-    return soc, ocv
-
-
 def _zero_dUdT(soc: float) -> float:
     return 0.0
 
@@ -307,13 +358,21 @@ NCR18650PF_ECM = ECM(
     Ea_I0=45.2e3,
     gamma=8.69,
     tau_ct=4.0,
-    Rd_25C=0.0274,  # calibrated on the 25 degC 1C discharge #1 voltage
-    tau_d=544.0,
+    Rd_25C=0.0284,  # calibrated on the 25 degC 1C discharge #1 voltage (v0.4.10 re-fit)
+    tau_d=405.0,
     V_max=4.2,
     V_min=2.5,
     cv_cutoff_A=0.05,
     soc_a=10.18,
     soc_b=0.0801,
+    # v0.4.10: temperature laws from the 0.9 A discharge-and-rest steps between
+    # the HPPC pulse sets at 25, 10, 0 and -10 degC (identification data, not
+    # in the validation set): the low-SOC rise grows in the cold (20.7 kJ/mol)
+    # and the slow branch follows its own, gentler Arrhenius law (26.8 kJ/mol)
+    # instead of the charge-transfer kinetics (45 kJ/mol). Rd_25C and tau_d
+    # re-calibrated on the same single test with these laws.
+    Ea_Rd=26.8e3,
+    Ea_soc=20.7e3,
     sources=("Kollmeyer2018",),
 )
 

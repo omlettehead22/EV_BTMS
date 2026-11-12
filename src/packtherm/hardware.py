@@ -24,7 +24,7 @@ import math
 from dataclasses import dataclass
 
 from .cells import Cell
-from .module import AirFlow, BottomPlate, Module, SideRibbon
+from .module import AirFlow, BottomPlate, Module, SideRibbon, coolant_holdup_kg
 
 RHO_AL = 2700.0  # kg/m^3, 3003 / 6063 aluminium
 
@@ -58,9 +58,8 @@ def _plate_parts(cell: Cell, module: Module, c: BottomPlate) -> dict[str, float]
     A = module.layout.area_per_cell(cell)  # footprint per cell, m^2
     g = c.plate
     v_al = A * (g.base_mm + g.channel_sheet_mm * g.forming_factor) * 1e-3
-    v_cool = A * g.channel_coverage * g.channel_height_mm * 1e-3
     v_tim = A * c.tim.bond_line_mm * 1e-3
-    return {"aluminium": RHO_AL * v_al, "coolant": c.coolant.rho * v_cool, "interface": c.tim.rho * v_tim}
+    return {"aluminium": RHO_AL * v_al, "coolant": coolant_holdup_kg(cell, module), "interface": c.tim.rho * v_tim}
 
 
 def _ribbon_parts(cell: Cell, module: Module, c: SideRibbon) -> dict[str, float]:
@@ -69,12 +68,11 @@ def _ribbon_parts(cell: Cell, module: Module, c: SideRibbon) -> dict[str, float]
     t, w = g.thickness_mm * 1e-3, g.wall_mm * 1e-3
     n_ribs = max(0, math.floor(h / (g.rib_pitch_mm * 1e-3)) - 1)
     a_al = 2.0 * (h + t) * w + n_ribs * (t - 2.0 * w) * g.rib_mm * 1e-3  # cross-section, m^2
-    a_cool = h * t - a_al
     length = module.layout.pitch(cell) * g.weave_factor / g.rows_per_ribbon  # tube length per cell, m
     bond_area = c.contact_fraction * 2.0 * math.pi * cell.radius * h
     return {
         "aluminium": RHO_AL * a_al * length,
-        "coolant": c.coolant.rho * a_cool * length,
+        "coolant": coolant_holdup_kg(cell, module),
         "interface": c.tim.rho * bond_area * c.tim.bond_line_mm * 1e-3,
     }
 

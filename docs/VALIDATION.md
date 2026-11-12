@@ -2,7 +2,7 @@
 
 **Bottom line:**
 - **Thermal model:** with one calibrated parameter, it predicts the measured surface temperature of a commercial 18650 cell within **0.59 K median RMSE** over 49 blind tests, from 25 °C down to −20 °C. That covers drive cycles, constant-current discharge and CC-CV charging.
-- **Fully predictive model** (current in, voltage and temperature out): **0.62 K median RMSE** for temperature and **19–40 mV** for voltage between 25 °C and 0 °C. Accuracy falls off below 0 °C.
+- **Fully predictive model** (current in, voltage and temperature out): **0.65 K median RMSE** for temperature, with 88 % of tests within 1 K and every ambient's median at or below 0.77 K. Voltage error is **17–34 mV** from 25 °C to 0 °C and 53–70 mV at −10 and −20 °C (v0.4.10; it was 84–177 mV).
 
 ## Data
 
@@ -19,8 +19,9 @@
 |---|---|---|
 | OCV | 25 °C C/20 discharge (+ its I·R) | `src/packtherm/data/ncr18650pf_ocv.csv` |
 | Kinetics | every HPPC pulse at all 5 temperatures (`validation/identify_panasonic.py`) | R0, Butler–Volmer charge transfer I₀(T) with Eₐ = 45 kJ/mol, low-SOC factor. 10 s overpotential within a median 5–11 % at every temperature |
+| Cold laws (v0.4.10) | the 0.9 A discharge-and-rest steps between HPPC pulse sets at 25, 10, 0, −10 °C (`cold_laws`; the −20 °C file is incomplete) | low-SOC rise Eₐ = 20.7 kJ/mol; slow branch Eₐ = 26.8 kJ/mol (re-running the script gives 20.6 and 27.1) |
 | Thermal calibration | **one test**: 25 °C 1C discharge #1, temperature | chamber h = 38.7 W/m²K |
-| Slow polarisation | the same test, voltage | R_d = 27 mΩ, τ_d = 544 s |
+| Slow polarisation | the same test, voltage | R_d = 28.4 mΩ, τ_d = 405 s |
 | **Validation** | the other **48 tests, blind** | below |
 
 Two modes are reported for every test:
@@ -36,13 +37,15 @@ Other details:
 
 | Ambient | Tests | Thermal mode: median RMSE / worst peak error | Predictive: median RMSE / worst peak error | Predictive voltage RMSE (median, before end-of-discharge knee) |
 |---|---|---|---|---|
-| 25 °C | 13 | 0.53 K / 1.1 K | 0.46 K / 1.5 K | 19 mV |
-| 10 °C | 9 | 0.67 K / 0.9 K | 0.59 K / 2.0 K | 21 mV |
-| 0 °C | 9 | 0.56 K / 0.7 K | 0.79 K / 2.2 K | 40 mV |
-| −10 °C | 9 | 0.59 K / 0.5 K | 0.67 K / 2.1 K | 84 mV |
-| −20 °C | 9 | 0.72 K / 1.3 K | 1.28 K / 3.4 K | 177 mV |
+| 25 °C | 12 | 0.53 K / 1.1 K | 0.45 K / 1.4 K | 17 mV |
+| 10 °C | 9 | 0.67 K / 0.9 K | 0.60 K / 1.6 K | 22 mV |
+| 0 °C | 9 | 0.56 K / 0.7 K | 0.77 K / 2.0 K | 34 mV |
+| −10 °C | 9 | 0.59 K / 0.5 K | 0.70 K / 3.1 K | 53 mV |
+| −20 °C | 9 | 0.72 K / 1.2 K | 0.73 K / 3.5 K | 70 mV |
 
-The measured rises go up to 20 K in the cold. 96 % of thermal-mode tests and 80 % of predictive tests are within 1 K RMSE. Full per-test table: [`validation/summary.csv`](validation/summary.csv).
+v0.4.10 compared with v0.4.9 (same 48 blind tests): predictive tests within 1 K 79 % → 88 %; −20 °C median 1.28 → 0.73 K; cold voltage error roughly halved. The worst cold peak errors changed sign: the model used to over-predict heat in the cold (+3.4 K worst, the safe side for design) and now under-predicts it slightly (−3.5 K worst, cold heat 7–10 % low on average).
+
+The measured rises go up to 20 K in the cold. 96 % of thermal-mode tests and 88 % of predictive tests are within 1 K RMSE. Full per-test table: [`validation/summary.csv`](validation/summary.csv).
 
 ![US06 at every ambient](validation/traces.png)
 ![Errors for every test](validation/errors.png)
@@ -56,9 +59,9 @@ The measured rises go up to 20 K in the cold. 96 % of thermal-mode tests and 80 
   - The CC-CV logic tracks the measured current taper.
 - **Calibrated, not predicted:** h is a property of *this chamber*, not of the cell. In a design study h is the design variable, so calibrating it here is appropriate.
 - **Known gaps:**
-  - At −20 °C the predictive mode overestimates heat by up to 3.4 K (on the safe side for design), and voltage error rises to about 180 mV. Charge-transfer kinetics at high current in deep cold are only partly captured by one Butler–Volmer term.
-  - **Cold capacity loss:** near the end of discharge below 0 °C, the cell reaches cut-off earlier than the 25 °C capacity implies. That's why voltage error is reported before the knee.
-  - **Entropic heat** is neglected for this NCA cell (no dU/dT data in the dataset). The charge is about 1.1–1.5 K under-predicted in both modes, consistent with missing reversible heat.
+  - **Deep cold (v0.4.10):** the low-SOC rise now grows in the cold, so the voltage knee arrives earlier (the cold capacity loss), and the slow branch follows its own Arrhenius law. Both laws come from identification data, not the validation tests. In the cold the predictive model now under-predicts heat by 7–10 % on average (worst peak −3.5 K at −20 °C): a slow-branch law fitted at 0.3C is a little too gentle for drive-cycle currents. Following the charge-transfer kinetics instead over-predicts by a similar amount, so the true behaviour sits between the two.
+  - **Cold capacity loss** is now modelled through that low-SOC rise; voltage error is still reported before the knee for comparability.
+  - **Entropic heat** is still neglected for this NCA cell (no dU/dT data in the dataset). The charge is about 1.1–1.4 K under-predicted in both modes, consistent with missing reversible heat. Published NCA/graphite profiles disagree on the sign over the relevant SOC range (one study reports entropic heat strongly negative on charge, which would make the error worse), so no literature curve is applied; a potentiometric measurement on this cell would settle it.
   - **Single cell, thermocouple on the surface:** core temperature is not validated directly. The model's in-cell gradient is up to about 2.8 K at 2C (25 °C). Core-temperature datasets for the LG M50 (Warwick, Mendeley bf6fksxpp2) would close this gap, but they are not reachable from this build environment.
 
 ## Reproduce
