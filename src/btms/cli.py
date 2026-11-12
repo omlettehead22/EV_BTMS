@@ -189,13 +189,13 @@ def _module(args) -> None:
     def cooling_for(kind):
         return {
             "none": None,
-            "air": AirFlow(args.h),
+            "air": AirFlow(flow_g_s_per_cell=args.air_flow),
             "bottom": BottomPlate(coolant=coolant, tim=tim),
             "ribbon": SideRibbon(coolant=coolant, tim=tim, contact_fraction=args.contact),
         }[kind]
 
     if args.compare:
-        modules = [Module(layout, None, None), Module(layout, None, AirFlow(args.h))]
+        modules = [Module(layout, None, None), Module(layout, None, AirFlow(flow_g_s_per_cell=args.air_flow))]
         for kind in ("bottom", "ribbon"):
             for filler in (None, *args.fillers):
                 modules.append(Module(layout, filler, cooling_for(kind)))
@@ -216,8 +216,8 @@ def _module(args) -> None:
         "pump_mW_per_cell",
         "filler_mass_pct",
     ]
-    with pd.option_context("display.width", 160, "display.precision", 2):
-        print(df[cols].to_string(index=False))
+    with pd.option_context("display.width", 160):
+        print(df[cols].round(2).to_string(index=False))
     if args.out:
         df.to_csv(args.out, index=False)
         print(f"Wrote {args.out}")
@@ -306,7 +306,7 @@ def main(argv: list[str] | None = None) -> None:
     mo.add_argument("--contact", type=float, default=0.25, help="Ribbon contact fraction of the circumference.")
     mo.add_argument("--tim-mm", type=float, default=0.5)
     mo.add_argument("--tim-k", type=float, default=2.0)
-    mo.add_argument("--h", type=float, default=30.0, help="Forced-air h for --cooling air [W/m2K].")
+    mo.add_argument("--air-flow", type=float, default=0.3, help="Air flow per cell for --cooling air [g/s].")
     mo.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
     mo.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
     mo.add_argument("--c-rate", type=float, default=1.0)

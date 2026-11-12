@@ -143,35 +143,49 @@ class Interface:
 class AirFlow:
     """Forced air through the gaps between cans.
 
-    The air warms as it passes cells, like a liquid coolant but with far less
-    heat capacity. ASSUMPTIONS: 0.3 g/s of air per cell (about 2 m/s through a
-    2 mm x 70 mm gap per cell), 200 Pa pack pressure drop at that flow, fan
-    efficiency 0.3. Set ``flow_g_s_per_cell=None`` to ignore the air
-    temperature rise.
+    Flow is the design variable: it sets h on the can (h ~ flow^0.8), the air
+    temperature rise along the flow, and fan power ((flow/rho) dp / eta with
+    dp ~ flow^2). ASSUMPTIONS: h = 30 W/m^2K at 0.3 g/s of air per cell (about
+    2 m/s through a 2 mm x 70 mm gap per cell), 200 Pa pack pressure drop at
+    that flow, fan efficiency 0.3. ``track_rise=False`` ignores the air
+    temperature rise (every cell sees ambient air).
     """
 
-    h: float = 30.0  # W/(m^2 K) on the can surface
-    flow_g_s_per_cell: float | None = 0.3
+    flow_g_s_per_cell: float = 0.3
+    h_ref: float = 30.0  # W/(m^2 K) at flow_ref_g_s
+    flow_ref_g_s: float = 0.3
     cp: float = 1005.0  # J/(kg K)
     rho: float = 1.18  # kg/m^3
     dp_ref_Pa: float = 200.0
-    flow_ref_g_s: float = 0.3
     fan_efficiency: float = 0.3
+    track_rise: bool = True
     name: str = "air"
 
+    def __post_init__(self) -> None:
+        if self.flow_g_s_per_cell <= 0:
+            raise ValueError("Air flow must be positive.")
+
     @property
-    def pump_power_W_per_cell(self) -> float:
-        if not self.flow_g_s_per_cell:
-            return 0.0
-        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
-        return self.mdot / self.rho * dp / self.fan_efficiency
+    def h(self) -> float:
+        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 0.8
 
     @property
     def mdot(self) -> float:
-        return (self.flow_g_s_per_cell or 0.0) * 1e-3
+        return self.flow_g_s_per_cell * 1e-3
+
+    @property
+    def pump_power_W_per_cell(self) -> float:
+        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
+        return self.mdot / self.rho * dp / self.fan_efficiency
 
     def rise_K(self, Q_W_per_cell: float) -> float:
-        return Q_W_per_cell / (self.mdot * self.cp) if self.flow_g_s_per_cell else 0.0
+        return Q_W_per_cell / (self.mdot * self.cp) if self.track_rise else 0.0
+
+    @classmethod
+    def with_h(cls, h: float, **kw) -> AirFlow:
+        """The air flow that gives convective coefficient ``h``."""
+        ref = cls(**kw)
+        return cls(flow_g_s_per_cell=ref.flow_ref_g_s * (h / ref.h_ref) ** 1.25, **kw)
 
 
 @dataclass(frozen=True)
@@ -190,6 +204,8 @@ class SideRibbon:
     tim: Interface = field(default_factory=Interface)
     # ASSUMPTION: share of the can circumference bonded to the ribbon.
     contact_fraction: float = 0.25
+    # ASSUMPTION: the ribbon tube must fit between neighbouring cans.
+    min_gap_mm: float = 1.5
     name: str = "side ribbon"
 
 
@@ -205,11 +221,16 @@ class Module:
     def __post_init__(self) -> None:
         if isinstance(self.cooling, AirFlow) and self.filler is not None:
             raise ValueError("AirFlow needs open gaps: use filler=None.")
+        if isinstance(self.cooling, SideRibbon) and self.layout.gap_mm < self.cooling.min_gap_mm:
+            raise ValueError(
+                f"A side ribbon needs at least {self.cooling.min_gap_mm:g} mm between cans "
+                f"(layout has {self.layout.gap_mm:g} mm)."
+            )
 
     def describe(self) -> str:
         cool = "uncooled" if self.cooling is None else self.cooling.name
         if isinstance(self.cooling, AirFlow):
-            cool += f" h={self.cooling.h:g}"
+            cool += f" {self.cooling.flow_g_s_per_cell:g} g/s/cell (h={self.cooling.h:.0f})"
         elif self.cooling is not None:
             c = self.cooling.coolant
             cool += f" {c.flow_g_s_per_cell:g} g/s/cell"
@@ -257,6 +278,17 @@ class ModuleResult:
     def dT_cell_max(self) -> float:
         """Largest in-cell spread: radial (model) plus axial (estimate)."""
         return float(np.max(self.res.dT_cell + self.dT_axial))
+
+    def chiller_energy_Wh(self, cop: float, until_s: float | None = None) -> float:
+        """Chiller electricity per cell: heat taken by sub-ambient coolant / COP."""
+        c = self.module.cooling
+        if not isinstance(c, (BottomPlate, SideRibbon)) or c.coolant.inlet_C is None:
+            return 0.0
+        if c.coolant.inlet_C + KELVIN >= self.T_ambient or self.Q_coolant is None:
+            return 0.0
+        n = self.res.t.size if until_s is None else int(np.searchsorted(self.res.t, until_s, side="right"))
+        dt = np.diff(self.res.t[:n], prepend=0.0)
+        return float(np.sum(np.clip(self.Q_coolant[:n], 0.0, None) * dt)) / cop / 3600.0
 
     @property
     def pump_W_per_cell(self) -> float:
@@ -306,7 +338,7 @@ def simulate_module(
     sinks: list[Sink] = []
     h_outer = 0.0
     if isinstance(cooling, AirFlow):
-        if cooling.flow_g_s_per_cell:
+        if cooling.track_rise:
             area = 2.0 * math.pi * cell.radius * L
 
             def G_air(grid, params, h=cooling.h, area=area):
