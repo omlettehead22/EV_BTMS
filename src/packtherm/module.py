@@ -92,8 +92,16 @@ class Coolant:
     """Liquid coolant (50/50 water-glycol) shared along a channel.
 
     ASSUMPTIONS (all overridable): reference flow 0.05 g/s per cell (about
-    13 L/min for a 4,400-cell pack), h_ref at that flow, pressure drop
-    20 kPa at that flow, pump efficiency 0.5.
+    13 L/min for a 4,400-cell pack), h_ref at that flow, 20 kPa across the
+    module channels at that flow.
+
+    Pump power covers the whole loop: the module channels plus the rest of the
+    loop (hoses, manifolds, chiller and radiator), 30 kPa at the reference
+    flow, so the total of 50 kPa matches the 0.5-0.6 bar that small electric
+    coolant pumps are rated for around 20-25 L/min (Pierburg CWA50, Rheinmetall
+    CWA 50). The same datasheets give a pump efficiency of about 0.3 (hydraulic
+    power over electrical input). The radiator fan is charged at 3 % of the
+    heat the radiator rejects (ASSUMPTION: e.g. a 300 W fan rejecting 10 kW).
     """
 
     flow_g_s_per_cell: float = 0.05
@@ -105,8 +113,10 @@ class Coolant:
     rho: float = 1060.0  # kg/m^3
     h_ref: float = 1500.0  # W/(m^2 K) at flow_ref, per cooled area
     flow_ref_g_s: float = 0.05
-    dp_ref_Pa: float = 20e3
-    pump_efficiency: float = 0.5
+    dp_ref_Pa: float = 20e3  # module channels
+    dp_loop_ref_Pa: float = 30e3  # rest of the loop
+    pump_efficiency: float = 0.3
+    radiator_fan_W_per_W: float = 0.03
 
     @property
     def mdot(self) -> float:
@@ -119,7 +129,8 @@ class Coolant:
 
     @property
     def pump_power_W_per_cell(self) -> float:
-        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
+        """Electrical pump power per cell for the whole loop."""
+        dp = (self.dp_ref_Pa + self.dp_loop_ref_Pa) * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
         return self.mdot / self.rho * dp / self.pump_efficiency
 
     def rise_K(self, Q_W_per_cell: float) -> float:
@@ -405,6 +416,19 @@ class ModuleResult:
         heat_J = float(np.sum(np.clip(self.Q_coolant[:n], 0.0, None) * dt * on))
         heat_J += chiller.leak_W_per_cell(self.cell, T_set, self.T_ambient) * float(np.sum(dt * on))
         return heat_J / chiller.cop_at(T_set, self.T_ambient) / 3600.0
+
+    def radiator_fan_energy_Wh(self, until_s: float | None = None) -> float:
+        """Radiator fan electricity per cell: a share of the heat the coolant
+        carries to the radiator (whenever the chiller is not running)."""
+        c = self.module.cooling
+        if not isinstance(c, (BottomPlate, SideRibbon)) or self.Q_coolant is None:
+            return 0.0
+        t = self.res.t
+        n = t.size if until_s is None else int(np.searchsorted(t, until_s, side="right"))
+        radiator = ~c.coolant.chiller_on(t[:n], self.T_ambient)
+        dt = np.diff(t[:n], prepend=0.0)
+        heat_J = float(np.sum(np.clip(self.Q_coolant[:n], 0.0, None) * dt * radiator))
+        return c.coolant.radiator_fan_W_per_W * heat_J / 3600.0
 
     @property
     def pump_W_per_cell(self) -> float:

@@ -250,3 +250,29 @@ def test_filler_mass():
     assert module_mass_per_cell_kg(LG_M50, Module(filler=None, cooling=None)) == 0.0
     with pytest.raises(ValueError):
         Module(filler="RT31", cooling=AirFlow())
+
+
+def test_pump_covers_whole_loop():
+    c = Coolant()
+    q = c.mdot / c.rho  # m^3/s per cell
+    assert c.pump_power_W_per_cell == pytest.approx(q * (20e3 + 30e3) / 0.3)
+    doubled = Coolant(flow_g_s_per_cell=0.1)
+    assert doubled.pump_power_W_per_cell == pytest.approx(8 * c.pump_power_W_per_cell)
+
+
+def test_radiator_fan_charged_on_rejected_heat():
+    prof = constant_current(LG_M50, 1.0)
+    r = simulate_module(LG_M50, Module(RIBBON_GAP, None, SideRibbon()), prof, 1800, 25.0)
+    heat_J = np.sum(np.clip(r.Q_coolant, 0, None) * np.diff(r.res.t, prepend=0.0))
+    assert r.radiator_fan_energy_Wh() == pytest.approx(0.03 * heat_J / 3600)
+    # No radiator fan while the chiller carries the heat; it starts when the chiller hands back.
+    chilled = simulate_module(
+        LG_M50,
+        Module(RIBBON_GAP, None, SideRibbon(coolant=Coolant(inlet_C=15.0, chiller_until_s=900.0))),
+        prof,
+        1800,
+        25.0,
+    )
+    i = np.searchsorted(chilled.res.t, 900.0)
+    assert chilled.radiator_fan_energy_Wh(until_s=chilled.res.t[i - 1]) == 0.0
+    assert chilled.radiator_fan_energy_Wh() > 0.0

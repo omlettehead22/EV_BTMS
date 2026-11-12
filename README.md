@@ -8,7 +8,7 @@ A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. I
 
 `packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
 
-- **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). The old thesis anchors overstated liquid pumping about 200×.
+- **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). Since v0.4.5 the pump covers the whole loop (module 20 kPa + rest of loop 30 kPa, efficiency 0.3, from Pierburg and Rheinmetall pump data) and the radiator fan is charged at 3 % of the heat it rejects.
 - **Mass** = filler + cooling hardware built up from geometry (v0.4.3, below). The gap's volume cost is reported as `volume_overhead_pct`.
 - Front, worst-case-resistance re-check and picks are shared with the single-cell advisor, which stays available as `--level cell`.
 
@@ -23,10 +23,11 @@ packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell adv
 | Pick | Design | Outlet-cell peak | Mass added | Aux energy |
 |---|---|---|---|---|
 | Lightest | forced air 0.15 g/s per cell | 40.5 °C | +1.8 % | 0.26 % |
-| Lowest energy / balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.9 °C | +7.2 % | 0.001 % |
+| Lowest energy | bottom plate 0.02 g/s per cell | 41.5 °C | +8.2 % | 0.054 % |
+| Balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.9 °C | +7.2 % | 0.055 % |
 
 **What it shows**
-- **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
+- **Once pump energy is physical, liquid cooling costs very little to run** (about 0.05 % of the energy moved, half pump and half radiator fan, against 0.26 % for the lightest air design). The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
 - **A PCM that melts below ambient is a liability.** At 35 °C, RT31 never re-solidifies and every RT31 design fails on recovery; RT42 still works.
 - **A chiller holds every cell at 35 °C** but costs 1.2–2.1 % of the energy moved, a thousand times the pump. Since v0.4.4 that includes heat leaking in from the hot day and a COP that falls with ambient (about 3.0 at 35 °C, 2.4 at 45 °C); the chiller runs during the drive and hands back to the radiator afterwards.
 
@@ -77,10 +78,10 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 |---|---|---|---|---|---|---|
 | none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
 | forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 1.9 mW |
-| bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 1.9 mW |
-| side ribbon (3.5 mm gap) | air | **30.5 °C** | 40.0 °C | 9.5 K | 1.8 K | 1.9 mW |
-| side ribbon (3.5 mm gap) | RT31 | 30.4 °C | **35.6 °C** | 5.2 K | 2.2 K | 1.9 mW |
+| bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 7.9 mW |
+| bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | air | **30.5 °C** | 40.0 °C | 9.5 K | 1.8 K | 7.9 mW |
+| side ribbon (3.5 mm gap) | RT31 | 30.4 °C | **35.6 °C** | 5.2 K | 2.2 K | 7.9 mW |
 
 **What it shows**
 - **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
@@ -257,7 +258,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.2** ✅ | Rename to PackTherm, new model picture, housekeeping |
 | **v0.4.3** ✅ | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
 | **v0.4.4** ✅ | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
-| v0.4.x | Further accuracy updates (pack plumbing, edge cells, coolant thermal mass) |
+| **v0.4.5** ✅ | Whole-loop pump power and radiator fan energy |
+| v0.4.x | Further accuracy updates (edge cells, coolant thermal mass) |
 | v0.5 | Web app and API |
 
 ## Repository layout

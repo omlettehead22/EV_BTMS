@@ -206,7 +206,8 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
     recovery_min = float((res.t[ready][0] - t_stop) / 60.0) if recovered else np.nan
     t_ready = t_stop + recovery_min * 60.0 if recovered else float(res.t[-1])
 
-    fan_pump_Wh = r.pump_W_per_cell * t_ready / 3600.0
+    radiator_fan_Wh = r.radiator_fan_energy_Wh(until_s=t_ready)
+    fan_pump_Wh = r.pump_W_per_cell * t_ready / 3600.0 + radiator_fan_Wh
     chiller_Wh = r.chiller_energy_Wh(study.chiller, until_s=t_ready)
     aux_Wh = fan_pump_Wh + chiller_Wh
 
@@ -273,6 +274,7 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
         "throughput_Wh": throughput_Wh,
         "pump_mW_per_cell": 1e3 * r.pump_W_per_cell,
         "fan_pump_Wh": fan_pump_Wh,
+        "radiator_fan_Wh": radiator_fan_Wh,
         "chiller_Wh": chiller_Wh,
         "aux_energy_Wh": aux_Wh,
         "aux_energy_pct": 100.0 * aux_Wh / throughput_Wh if throughput_Wh > 0 else np.nan,
@@ -339,8 +341,8 @@ class ModuleStudyResult(StudyResult):
         liquid = t[t.cooling_kind == "liquid"]
         if len(liquid):
             out.append(
-                f"NOTE: liquid pump power is the module channel only ({liquid.pump_mW_per_cell.max():.1f} mW/cell at "
-                "most); pack plumbing, radiator fan and chiller compressor idle losses are not included."
+                f"NOTE: liquid pump power covers the whole loop ({liquid.pump_mW_per_cell.max():.1f} mW/cell at most) "
+                "and the radiator fan is charged at 3 % of the heat it rejects; chiller idle losses are not included."
             )
         return out
 

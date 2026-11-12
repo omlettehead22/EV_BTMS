@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+- **Whole-loop pump power.** `Coolant.dp_loop_ref_Pa` (30 kPa) adds the rest of the loop (hoses, manifolds, chiller, radiator) to the module channels (20 kPa); 50 kPa in total matches the 0.5–0.6 bar small electric coolant pumps are rated for at 20–25 L/min. Pump efficiency 0.5 → 0.3, from the same datasheets (Pierburg CWA50, Rheinmetall CWA 50). Pump power per cell 1.9 → 7.9 mW (about 26 W for a 60 kWh M50 pack).
+- **Radiator fan energy** (`ModuleResult.radiator_fan_energy_Wh`): 3 % of the heat the coolant carries to the radiator, whenever the chiller is not running (assumption).
+- **Effect:** liquid cooling costs about 0.05 % of the energy moved on the 35 °C road trip (was about 0.001 %), still about 5× less than the lightest air design. The bottom plate and the ribbon now tie on energy, so the lowest-energy pick moves to the bottom plate; the ribbon stays the balanced pick.
+
 ## 0.4.4
 - **Chiller accounting** (`packtherm.module.Chiller`):
   - COP falls with ambient: a share (0.42) of the Carnot COP between an evaporator 5 K below the set-point and a condenser 15 K above ambient. About 3.0 at 35 °C with a 15 °C set-point (the old fixed value), 2.4 at 45 °C, 4.0 at 25 °C. `--cop` still fixes it.
