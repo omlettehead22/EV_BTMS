@@ -19,6 +19,7 @@ from packtherm.module import (
     Module,
     RibbonGeometry,
     SideRibbon,
+    Wall,
     module_mass_per_cell_kg,
     pcm_volume_fraction,
     simulate_module,
@@ -276,3 +277,29 @@ def test_radiator_fan_charged_on_rejected_heat():
     i = np.searchsorted(chilled.res.t, 900.0)
     assert chilled.radiator_fan_energy_Wh(until_s=chilled.res.t[i - 1]) == 0.0
     assert chilled.radiator_fan_energy_Wh() > 0.0
+
+
+def test_edge_cell_exchanges_heat_with_ambient():
+    prof = constant_current(LG_M50, 1.5)
+    sealed = Module(Layout("hex", 2.0), "RT31", None)
+    interior = simulate_module(LG_M50, sealed, prof, 1800, 25.0)
+    edge = simulate_module(LG_M50, sealed, prof, 1800, 25.0, edge=True)
+    # A sealed interior cell is adiabatic; the edge cell loses heat through the wall.
+    assert edge.T_peak_C < interior.T_peak_C
+    Q = edge.res.Q_sinks["wall"]
+    assert Q[-1] > 0
+    # No wall, no difference.
+    bare = Module(Layout("hex", 2.0), "RT31", None, Wall(U=0.0))
+    same = simulate_module(LG_M50, bare, prof, 1800, 25.0, edge=True)
+    assert np.allclose(same.res.T_max, interior.res.T_max)
+    with pytest.raises(ValueError):
+        Wall(fraction=1.5)
+
+
+def test_edge_cell_of_chilled_module_runs_warm():
+    """Chilled coolant on a hot day: the wall leaks heat in, so the edge cell is the hottest."""
+    prof = constant_current(LG_M50, 0.3)
+    m = Module(RIBBON_GAP, None, SideRibbon(coolant=Coolant(inlet_C=15.0)))
+    interior = simulate_module(LG_M50, m, prof, 3600, 40.0, position="inlet")
+    edge = simulate_module(LG_M50, m, prof, 3600, 40.0, position="inlet", edge=True)
+    assert edge.res.T_max[-1] > interior.res.T_max[-1]

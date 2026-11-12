@@ -6,7 +6,7 @@ A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. I
 
 ## Module design advisor (v0.4.1)
 
-`packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
+`packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on its **hottest cell**: the interior cell at the coolant outlet, or since v0.4.6 a cell on the module wall (edge cell) if that runs hotter. The inlet and edge cells give the hottest-to-coolest spread, which can be limited (`--cell-to-cell-max`).
 
 - **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). Since v0.4.5 the pump covers the whole loop (module 20 kPa + rest of loop 30 kPa, efficiency 0.3, from Pierburg and Rheinmetall pump data) and the radiator fan is charged at 3 % of the heat it rejects.
 - **Mass** = filler + cooling hardware built up from geometry (v0.4.3, below). The gap's volume cost is reported as `volume_overhead_pct`.
@@ -91,7 +91,7 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 
 **Limits of the module model:**
 - The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
-- Coolant has no thermal mass, and cells at the edge of a module are not modelled.
+- Coolant has no thermal mass. Edge cells (v0.4.6) see the wall through a single assumed U-value.
 - Flow, Δp, h_ref, the thermal interface, the roll-end resistance and the hardware dimensions are labelled assumptions in `module.py` and `hardware.py`.
 
 ## Validated against measured temperatures (v0.3.2)
@@ -259,7 +259,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.3** ✅ | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
 | **v0.4.4** ✅ | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
 | **v0.4.5** ✅ | Whole-loop pump power and radiator fan energy |
-| v0.4.x | Further accuracy updates (edge cells, coolant thermal mass) |
+| **v0.4.6** ✅ | Edge cells on the module wall in the model and the advisor |
+| v0.4.x | Further accuracy updates (coolant thermal mass) |
 | v0.5 | Web app and API |
 
 ## Repository layout
