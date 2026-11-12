@@ -28,7 +28,7 @@ A review of the model and advisor as of v0.3.1, ranked by how much each item cou
 4. ~~No CV taper~~ **Done in v0.3.2.** **Still open:** capacity does not depend on temperature (cold capacity loss near cut-off below 0 °C), deep-cold kinetics at high current (−20 °C predictive heat up to +3.4 K), and the NCA entropic coefficient (charge under-predicted by about 1.1–1.5 K).
 5. **1D radial model only.** There are no axial gradients and no tab/base cooling. Bottom cooling of cylindrical cells is common in production packs.
 6. ~~Pump power inconsistency~~ **Fixed in v0.4.1:** the module advisor computes pump and fan power from flow and pressure drop. **Still open:** the module Δp covers the module channel only, not pack plumbing, radiator fan or chiller idle losses. Original note: **Pump power inconsistency.** The module model computes pump power from flow (about 2 mW per cell at the reference flow) and fan power (about 170 mW per cell). The design advisor still uses the thesis anchors (liquid about 400 mW per cell), which overstate liquid-cooling energy by about 200×. Fix by moving the advisor onto `packtherm.module`. Also: **fan-law anchors are the thesis estimates**, and the h^3.75 law assumes turbulent flow. Laminar cold-plate channels behave differently, where h is set by geometry more than flow. Needs a cold-plate design reference.
-7. **The chiller has a fixed COP** and ignores ambient heat leaking into the chilled loop.
+7. ~~Fixed chiller COP, no heat leak~~ **Done in v0.4.4:** COP falls with ambient (Carnot share), heat leaking in from a hot day is charged, and the chiller runs during the event then hands back to the radiator. **Still open:** the Carnot share (0.42) and the 9 h pack time constant are single-source assumptions; the leak heat is charged to the chiller but does not warm the cells in the thermal model; chiller idle losses are not modelled.
 
 ## Module model assumptions to firm up
 - Roll-end-to-can resistance (5e-4 m²K/W) dominates bottom cooling and is the least certain value. A teardown or bottom-cooling test would pin it down.
@@ -36,8 +36,7 @@ A review of the model and advisor as of v0.3.1, ranked by how much each item cou
 - The side ribbon is applied at the can surface with a uniform contact fraction. In reality the contact is a strip, so the can gets a circumferential gradient.
 
 - ~~Flat cooling hardware mass~~ **Done in v0.4.3:** mass from geometry with sourced dimensions. **Still open:** pack-level parts (liquid loop 3 kg, air system 4 kg, chiller 4 kg) are assumptions; cell holders and module structure are not charged to any option; the ribbon contact is still uniform around the bonded share of the can.
-- The module unit cell is adiabatic at its edge, so ambient heat leaking into a chilled module is not counted; chiller energy is a lower bound.
-- Recovery for chilled designs is immediate (the cell is already below ambient + 1 K), so chiller energy after the event is not counted.
+- The module unit cell is adiabatic at its edge (edge cells: v0.4.6).
 
 ## Advisor and product
 8. **Ageing as a third objective.** Temperature drives calendar and cycle ageing. Scoring designs on predicted capacity fade (Arrhenius ageing) would show what "hotter but lighter" costs in battery life. This is probably the highest-value product feature.

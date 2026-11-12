@@ -12,6 +12,7 @@ from packtherm.materials import PCM_LIBRARY, composite_pcm, get_pcm
 from packtherm.module import (
     AirFlow,
     BottomPlate,
+    Chiller,
     Coolant,
     Interface,
     Layout,
@@ -94,9 +95,42 @@ def test_chiller_energy_counts_heat_to_cold_coolant():
         25.0,
     )
     assert warm.chiller_energy_Wh(3.0) == 0.0
-    expected = np.sum(np.clip(cold.Q_coolant, 0, None) * np.diff(cold.res.t, prepend=0.0)) / 3.0 / 3600
-    assert cold.chiller_energy_Wh(3.0) == pytest.approx(expected)
+    dt = np.diff(cold.res.t, prepend=0.0)
+    heat_J = np.sum(np.clip(cold.Q_coolant, 0, None) * dt)
+    no_leak = Chiller(cop=3.0, pack_time_constant_h=math.inf)
+    assert cold.chiller_energy_Wh(no_leak) == pytest.approx(heat_J / 3.0 / 3600)
+    # The heat leaking in from a 10 K warmer day is charged on top.
+    leak_J = LG_M50.mass * LG_M50.cp / (9 * 3600) * 10.0 * dt.sum()
+    assert cold.chiller_energy_Wh(3.0) == pytest.approx((heat_J + leak_J) / 3.0 / 3600)
     assert cold.T_peak_C < warm.T_peak_C
+
+
+def test_chiller_cop_falls_on_hot_days():
+    c = Chiller()
+    set_K = 15.0 + KELVIN
+    assert c.cop_at(set_K, 35.0 + KELVIN) == pytest.approx(3.0, abs=0.05)
+    assert c.cop_at(set_K, 45.0 + KELVIN) < c.cop_at(set_K, 35.0 + KELVIN) < c.cop_at(set_K, 25.0 + KELVIN)
+    assert Chiller(cop=2.5).cop_at(set_K, 45.0 + KELVIN) == 2.5
+    assert c.leak_W_per_cell(LG_M50, set_K, 10.0 + KELVIN) == 0.0
+
+
+def test_chiller_hands_back_to_radiator():
+    """With chiller_until_s the inlet returns to ambient and chiller energy stops."""
+    prof = constant_current(LG_M50, 1.0)
+    run = lambda until: simulate_module(
+        LG_M50,
+        Module(RIBBON_GAP, None, SideRibbon(coolant=Coolant(inlet_C=15.0, chiller_until_s=until))),
+        prof,
+        3600,
+        35.0,
+        position="inlet",
+    )
+    always, half = run(None), run(1800.0)
+    i = np.searchsorted(half.res.t, 1800.0)
+    assert half.T_coolant[i - 1] == pytest.approx(15.0 + KELVIN)
+    assert half.T_coolant[-1] == pytest.approx(35.0 + KELVIN)
+    assert half.chiller_energy_Wh() == pytest.approx(always.chiller_energy_Wh(until_s=half.res.t[i - 1]), rel=1e-6)
+    assert half.chiller_energy_Wh() < always.chiller_energy_Wh()
 
 
 def test_coolant_scaling():

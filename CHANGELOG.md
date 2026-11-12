@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4
+- **Chiller accounting** (`packtherm.module.Chiller`):
+  - COP falls with ambient: a share (0.42) of the Carnot COP between an evaporator 5 K below the set-point and a condenser 15 K above ambient. About 3.0 at 35 °C with a 15 °C set-point (the old fixed value), 2.4 at 45 °C, 4.0 at 25 °C. `--cop` still fixes it.
+  - Heat leaking into a chilled pack from a hot day is charged to the chiller: cell heat capacity / 9 h pack time constant × (ambient − set-point).
+  - The chiller runs during the event, then the loop hands back to the radiator (`Coolant.chiller_until_s`, `--chiller-runs event|always`). Before, the chiller held the set-point forever in the simulation and its energy was cut off at an immediate "ready" time.
+- **Effect:** chilled designs cost 1.2–2.1 % of the energy moved on the 35 °C road trip (was 1.1–2.0 %). Same picks.
+
 ## 0.4.3
 - **Cooling hardware mass from geometry** (`packtherm.hardware`), replacing the flat kg per kWh in the module advisor:
   - cold plate: base and channel sheets over the cell's footprint, coolant in the channels, gap filler under the cell (`PlateGeometry`);

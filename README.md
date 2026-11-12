@@ -28,7 +28,7 @@ packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell adv
 **What it shows**
 - **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
 - **A PCM that melts below ambient is a liability.** At 35 °C, RT31 never re-solidifies and every RT31 design fails on recovery; RT42 still works.
-- **A chiller holds every cell at 35 °C** but costs 1–1.7 % of the energy moved, a thousand times the pump.
+- **A chiller holds every cell at 35 °C** but costs 1.2–2.1 % of the energy moved, a thousand times the pump. Since v0.4.4 that includes heat leaking in from the hot day and a COP that falls with ambient (about 3.0 at 35 °C, 2.4 at 45 °C); the chiller runs during the drive and hands back to the radiator afterwards.
 
 ![Module trade-off](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png)
 
@@ -256,7 +256,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.1** ✅ | Design advisor on the module model: flow, topology, filler, gap as design variables with physical pump/fan energy |
 | **v0.4.2** ✅ | Rename to PackTherm, new model picture, housekeeping |
 | **v0.4.3** ✅ | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
-| v0.4.x | Further accuracy updates (chiller accounting, pack plumbing, edge cells, coolant thermal mass) |
+| **v0.4.4** ✅ | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
+| v0.4.x | Further accuracy updates (pack plumbing, edge cells, coolant thermal mass) |
 | v0.5 | Web app and API |
 
 ## Repository layout
