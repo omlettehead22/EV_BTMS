@@ -4,6 +4,20 @@ A transient thermal model of a lithium-ion cell wrapped in a phase-change materi
 
 ![Model domain](docs/figures/figure_3_1_model_domain.png)
 
+## Validated against measured temperatures (v0.3.2)
+
+The thermal model has been tested blind against **49 tests on a commercial Panasonic NCR18650PF cell**, the cell the thesis calibrated against. The tests cover drive cycles, 1C discharge and CC-CV charge at chamber temperatures from 25 °C down to −20 °C, from the open Kollmeyer dataset (CC BY 4.0).
+- **One parameter calibrated:** the chamber h, on one test.
+- **Thermal model:** median surface-temperature error **0.59 K RMSE**; 96 % of tests within 1 K, including 20 K self-heating rises at −20 °C.
+- **Fully predictive** (current in, voltage and temperature out):
+  - temperature: **0.62 K** median RMSE;
+  - voltage: **19–40 mV** median from 25 °C to 0 °C;
+  - CC-CV taper reproduced within 0.19 A.
+
+![US06 at every ambient](docs/validation/traces.png)
+
+Method, per-test results and known gaps are in [docs/VALIDATION.md](docs/VALIDATION.md). Reproduce with `python validation/run_panasonic.py`; `tests/test_validation.py` guards the claims in CI.
+
 ## Status: v0.3.1, passenger-EV design advisor
 
 Give the advisor a cell, a duty cycle and your limits. It simulates every combination of cooling and PCM choice, then shows the trade-off between **mass added** and **cooling energy** (fans, pumps and chiller):
@@ -148,14 +162,17 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.2** ✅ | Electro-thermal heat generation, cell library (M50 21700, MJ1 18650), enthalpy-Newton solver, datasheet limit checks |
 | **v0.3** ✅ | Design advisor: cooling × PCM sweep, feasibility (peak, ΔT, recovery), Pareto front, three picks, worst-case-resistance re-check, trade-off chart |
 | **v0.3.1** ✅ | Continuous h with fan-law power, chiller, PCM grade library, WLTC and road-trip EV duties, iterative robustness, 2.6× faster solver |
-| v0.4 | Module level: packed unit cell, cold-plate contact and coolant temperature rise, composite PCM; validation against the open Warwick LG M50 dataset |
+| **v0.3.2** ✅ | Validation against 49 measured tests (25 to −20 °C); equivalent-circuit electrical model with Butler–Volmer kinetics, voltage cut-off and CC-CV charging; validated Panasonic NCR18650PF cell |
+| v0.4 | Module level: packed unit cell, cold-plate contact and coolant temperature rise, composite PCM |
 | v0.5 | Web app and API |
 
 ## Repository layout
 
 ```
 src/btms/        Python package (params, model, cells, materials, electrothermal, ev, design, report, scenarios, metrics, cli)
-src/btms/data/   WLTC Class 3b speed trace (UN GTR 15)
+src/btms/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
+validation/      dataset preparation, model identification and validation scripts + processed test data
+docs/VALIDATION.md  validation method and results
 docs/BACKLOG.md  known issues and improvement plan
 docs/examples/   design-study charts and CSVs
 tests/           MATLAB-parity and physics tests

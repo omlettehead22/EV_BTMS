@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .ecm import ECM
 from .params import KELVIN, Geometry, Material, Params
 
 R_GAS = 8.314462618  # J/(mol K)
@@ -142,6 +143,9 @@ class Cell:
     T_max_charge_C: float | None = None  # degC, datasheet upper limit while charging
     T_max_discharge_C: float | None = None
     sources: tuple[str, ...] = ()
+    # Optional equivalent-circuit model. When set, heat is I (OCV - V) from the
+    # ECM (with voltage limits and CC-CV charging) instead of I^2 R0.
+    ecm: ECM | None = None
 
     @property
     def radius(self) -> float:
@@ -243,3 +247,78 @@ def params_for_cell(
     n = max(3, int(np.ceil(r_case / dr_target)))
     geom = Geometry(r_cell=r_cell, r_pcm=r_pcm, r_case=r_case, length=cell.height, n_cells=n)
     return base.with_(geometry=geom, cell=cell.material)
+
+
+# ---------------------------------------------------------------------------
+# Panasonic NCR18650PF: identified from the Kollmeyer test dataset
+# ---------------------------------------------------------------------------
+
+
+def _load_ocv_table(name: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    from importlib import resources
+
+    text = resources.files("btms").joinpath(f"data/{name}").read_text()
+    rows = [line.split(",") for line in text.splitlines() if line and not line.startswith(("#", "soc"))]
+    soc, ocv = zip(*((float(a), float(b)) for a, b in rows))
+    return soc, ocv
+
+
+def _zero_dUdT(soc: float) -> float:
+    return 0.0
+
+
+_PF_SOC, _PF_OCV = _load_ocv_table("ncr18650pf_ocv.csv")
+
+# Electrical model identified from the dataset's own characterisation tests
+# (see validation/identify_panasonic.py):
+#   OCV: 25 degC C/20 discharge/charge.
+#   R0, I0, Ea_I0, gamma: 10 s overpotential of every HPPC pulse at 20-95 % SOC
+#       at 25, 10, 0, -10, -20 degC (median error 5-11 % per temperature).
+#   soc_a, soc_b: low-SOC rise of the same pulse overpotentials (all temperatures).
+#   tau_ct: median fitted pulse time constant at 25 degC.
+#   Rd, tau_d: slow branch fitted to the voltage of the 25 degC 1C calibration
+#       discharge (the only test used for calibration).
+NCR18650PF_ECM = ECM(
+    ocv_soc=_PF_SOC,
+    ocv_V=_PF_OCV,
+    R0_25C=0.0260,
+    Ea_R0=0.0,
+    I0_25C=15.61,
+    Ea_I0=45.2e3,
+    gamma=8.69,
+    tau_ct=4.0,
+    Rd_25C=0.0274,  # calibrated on the 25 degC 1C discharge #1 voltage
+    tau_d=544.0,
+    V_max=4.2,
+    V_min=2.5,
+    cv_cutoff_A=0.05,
+    soc_a=10.18,
+    soc_b=0.0801,
+    sources=("Kollmeyer2018",),
+)
+
+PANASONIC_NCR18650PF = Cell(
+    name="Panasonic NCR18650PF",
+    form_factor="18650",
+    chemistry="NCA / graphite",
+    capacity_Ah=2.99491,  # C/20 at 25 degC, this dataset's cell
+    V_nominal=3.6,
+    diameter=18.5e-3,  # with tube (datasheet max); the thermocouple sits on the tube
+    height=65.3e-3,
+    mass=0.047,  # datasheet: 47.0 g max without tube, 48.0 g max with tube
+    R0_25C=0.046,  # 10 s DC resistance at 1-2C, mid SOC, from the HPPC data
+    R0_range=(0.043, 0.052),
+    # ASSUMPTION: NMC811-family jelly-roll properties reused for NCA/graphite.
+    cp=_CP_JR,
+    k_radial=_K_JR,
+    # ASSUMPTION: entropic heat neglected (no NCA dU/dT data in this dataset).
+    dUdT=_zero_dUdT,
+    max_charge_C=0.5,  # datasheet standard charge 0.5C (1375 mA)
+    max_discharge_C=10.0 / 2.9,  # 10 A
+    T_max_charge_C=45.0,
+    T_max_discharge_C=60.0,
+    sources=("Kollmeyer2018", "NCR18650PF datasheet"),
+    ecm=NCR18650PF_ECM,
+)
+
+CELLS["PF"] = PANASONIC_NCR18650PF
