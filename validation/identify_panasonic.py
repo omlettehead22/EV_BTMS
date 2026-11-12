@@ -14,6 +14,13 @@ Reproduces the constants in ``packtherm.cells.NCR18650PF_ECM`` and the OCV table
 * Low-SOC factor: the ratio of measured to fitted overpotential over all
   SOCs, fitted to 1 + a exp(-SOC/b).
 
+Temperature laws (v0.4.10, ``cold_laws``): the 0.9 A discharge-and-rest steps
+between the HPPC pulse sets ("dis5_10p" files) at 25, 10, 0 and -10 degC are
+replayed through the model with the measured cell temperature; per temperature
+the slow-branch resistance and the low-SOC rise are scaled to fit the voltage,
+and Arrhenius laws are fitted across temperature (Ea_Rd, Ea_soc). The -20 degC
+file is incomplete and is not used.
+
 The slow branch (Rd, tau_d) and the chamber h are calibrated separately on the
 25 degC 1C discharge #1 by ``packtherm.validation.calibrate``.
 
@@ -99,5 +106,53 @@ def main(root: str) -> dict:
     return out
 
 
+DIS5 = {
+    25: "Panasonic 18650PF Data/25degC/5 pulse disch/03-11-17_10.10 3390_dis5_10p.mat",
+    10: "10degC/5 pulse test/03-27-17_10.29 3423_dis5_10p.mat",
+    0: "0degC/5 pulse/05-20-17_12.07 3619_dis5_10p.mat",
+    -10: "-10degC/5 pulse test/06-07-17_14.11 3740_dis5_10p.mat",
+}
+
+
+def cold_laws(root: str) -> dict:
+    """Arrhenius laws for the slow branch and the low-SOC rise (see module docstring)."""
+    from dataclasses import replace
+
+    from packtherm.cells import PANASONIC_NCR18650PF
+    from packtherm.ecm import ECMState
+
+    base = replace(PANASONIC_NCR18650PF.ecm, Ea_Rd=None, Ea_soc=0.0)
+
+    def replay(ecm, d):
+        t, I, Ah, Tk = d["Time"], -d["Current"], d["Ah"], d["Battery_Temp_degC"] + 273.15
+        st, out = ECMState(), np.empty_like(t)
+        out[0] = d["Voltage"][0]
+        for k in range(1, t.size):
+            V, eta, vd = st.step(ecm, I[k], 1 + Ah[k] / CAPACITY, Tk[k], t[k] - t[k - 1])
+            st.eta_ct, st.V_d = eta, vd
+            out[k] = V
+        return out
+
+    Ts, Rd, a = [], [], []
+    for Tn, f in DIS5.items():
+        d = load(Path(root) / f)
+        use = np.arange(d["Time"].size) >= 5
+
+        def resid(p, d=d, use=use):
+            ecm = replace(base, Rd_25C=base.Rd_25C * p[0], soc_a=base.soc_a * p[1])
+            return (replay(ecm, d) - d["Voltage"])[use]
+
+        kd, ka = least_squares(resid, [1.0, 1.0], bounds=([0.05, 0.1], [20, 20]), diff_step=1e-3).x
+        Ts.append(Tn + 273.15)
+        Rd.append(base.Rd(Tn + 273.15) * kd)
+        a.append(base.soc_a * ka)
+    x = 1 / np.array(Ts) - 1 / T25
+    Ea_Rd = np.polyfit(x, np.log(Rd), 1)[0] * R_GAS
+    Ea_soc = np.polyfit(x, np.log(a), 1)[0] * R_GAS
+    print(f"   Ea_Rd = {Ea_Rd / 1e3:.1f} kJ/mol   Ea_soc = {Ea_soc / 1e3:.1f} kJ/mol")
+    return {"Ea_Rd": Ea_Rd, "Ea_soc": Ea_soc, "Rd_by_T": dict(zip(DIS5, Rd)), "soc_a_by_T": dict(zip(DIS5, a))}
+
+
 if __name__ == "__main__":
     main(sys.argv[1])
+    cold_laws(sys.argv[1])

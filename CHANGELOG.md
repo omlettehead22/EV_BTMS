@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.10
+- **Cold-weather cell model** (Panasonic NCR18650PF): two temperature laws identified from the 0.9 A discharge-and-rest steps between the HPPC pulse sets at 25, 10, 0 and −10 °C (identification data, not in the validation set; `identify_panasonic.cold_laws`):
+  - the low-SOC rise grows in the cold (`ECM.Ea_soc`, 20.7 kJ/mol), so the voltage knee arrives earlier: the cold capacity loss;
+  - the slow branch follows its own Arrhenius law (`ECM.Ea_Rd`, 26.8 kJ/mol) instead of the charge-transfer kinetics (45 kJ/mol), which made it about twice too large at 0 to −10 °C.
+  - R_d and τ_d re-calibrated on the same single test with these laws (28.4 mΩ, 405 s).
+- **Blind validation (48 tests), predictive mode:** within 1 K 79 % → 88 %; −20 °C median 1.28 → 0.73 K; cold voltage error 177/84/40 → 70/53/34 mV at −20/−10/0 °C; overall median 0.63 → 0.65 K. In the cold the model now under-predicts heat by 7–10 % (worst −3.5 K) where it used to over-predict (worst +3.4 K). Thermal mode unchanged.
+- **Not changed:** NCA entropic heat. Published NCA/graphite profiles disagree on the sign over the SOC range that matters, so no curve is applied (see docs/VALIDATION.md).
+- The four combinations of the two laws were compared on the blind tests before choosing; only the M50/MJ1-independent PF electrical model changes.
+
 ## 0.4.9
 - **Side ribbon on a strip of the can** (`model2d.simulate_rtheta`, `model2d.Strip`): ribbons are now solved on a radius × angle grid (12 slices over half the circumference, by symmetry). The ribbon cools the can over its contact share; heat reaches it round the circumference along the spiral winding (in-plane conductivity, as along the height) and through the steel can (0.25 mm, 50 W/m·K, assumption). `simulate_module(..., n_theta=0)` keeps the radial model with the contact spread evenly.
 - The 2D bottom-plate and ribbon grids share one solver core (`model2d._run`), which reports heat and sink flows per whole cell when the grid covers a symmetric part.

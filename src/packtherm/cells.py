@@ -307,13 +307,21 @@ NCR18650PF_ECM = ECM(
     Ea_I0=45.2e3,
     gamma=8.69,
     tau_ct=4.0,
-    Rd_25C=0.0274,  # calibrated on the 25 degC 1C discharge #1 voltage
-    tau_d=544.0,
+    Rd_25C=0.0284,  # calibrated on the 25 degC 1C discharge #1 voltage (v0.4.10 re-fit)
+    tau_d=405.0,
     V_max=4.2,
     V_min=2.5,
     cv_cutoff_A=0.05,
     soc_a=10.18,
     soc_b=0.0801,
+    # v0.4.10: temperature laws from the 0.9 A discharge-and-rest steps between
+    # the HPPC pulse sets at 25, 10, 0 and -10 degC (identification data, not
+    # in the validation set): the low-SOC rise grows in the cold (20.7 kJ/mol)
+    # and the slow branch follows its own, gentler Arrhenius law (26.8 kJ/mol)
+    # instead of the charge-transfer kinetics (45 kJ/mol). Rd_25C and tau_d
+    # re-calibrated on the same single test with these laws.
+    Ea_Rd=26.8e3,
+    Ea_soc=20.7e3,
     sources=("Kollmeyer2018",),
 )
 
