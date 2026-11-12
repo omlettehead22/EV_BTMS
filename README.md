@@ -4,6 +4,34 @@ A transient thermal model of a lithium-ion cell wrapped in a phase-change materi
 
 ![Model domain](docs/figures/figure_3_1_model_domain.png)
 
+## Module design advisor (v0.4.1)
+
+`btms design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
+
+- **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). The old thesis anchors overstated liquid pumping about 200×.
+- **Mass** = filler + cooling hardware (kg per kWh of cells, overridable). The gap's volume cost is reported as `volume_overhead_pct`.
+- Front, worst-case-resistance re-check and picks are shared with the single-cell advisor, which stays available as `--level cell`.
+
+```bash
+btms design M50 --duty roadtrip --t-env 35 --out-dir results/
+btms design M50 --c-rate 1.5 --topologies air ribbon --coolant-flows 0.03 0.05 0.08 --gaps 1.5 2 3
+btms design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell advisor
+```
+
+**LG M50, 35 °C road trip** (130 km/h 90→10 %, then 0.7C charge to 80 %; [chart](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png), [CSV](docs/examples/module_m50_roadtrip_130kmh_35c_designs.csv)): 39 designs, 27 feasible.
+
+| Pick | Design | Outlet-cell peak | Mass added | Aux energy |
+|---|---|---|---|---|
+| Lightest | forced air 0.15 g/s per cell | 40.5 °C | +13 % | 0.26 % |
+| Lowest energy / balanced | side ribbon 0.02 g/s per cell | 39.8 °C | +27 % | 0.001 % |
+
+**What it shows**
+- **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off becomes hardware mass (the 0.5 vs 1.0 kg/kWh assumption) against fan energy, so the hardware-mass assumption now decides the pick.
+- **A PCM that melts below ambient is a liability.** At 35 °C, RT31 never re-solidifies and every RT31 design fails on recovery; RT42 still works.
+- **A chiller holds every cell at 35 °C** but costs 1–1.7 % of the energy moved, a thousand times the pump.
+
+![Module trade-off](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png)
+
 ## Module level (v0.4)
 
 Real cells sit in a packed array, so the free-air single-cell picture no longer applies. `btms module` models one cell in its share of a **square or hexagonal array**. By symmetry nothing crosses into the neighbour's share, so the unit cell's outer edge is adiabatic.
@@ -32,14 +60,14 @@ btms module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 |---|---|---|---|---|---|---|
 | none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
 | forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.6 °C | 47.5 °C | 5.9 K | **9.3 K** | 1.9 mW |
-| bottom plate | RT42-EG | 40.5 °C | 43.5 °C | 3.0 K | 10.6 K | 1.9 mW |
+| bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 1.9 mW |
+| bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 1.9 mW |
 | side ribbon | air | **29.8 °C** | 39.6 °C | 9.8 K | 1.8 K | 1.9 mW |
 | side ribbon | RT31 | 29.8 °C | **36.1 °C** | 6.3 K | 2.1 K | 1.9 mW |
 
 **What it shows**
 - **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 12 K at the inlet, and its in-cell ΔT is 1.8 K against 9 K. Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet, and its in-cell ΔT is 1.8 K against 6.4 K (an upper-bound axial estimate). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
 - **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by a third (9.8 → 6.3 K).
 - **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
 
@@ -208,13 +236,13 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.3.1** ✅ | Continuous h with fan-law power, chiller, PCM grade library, WLTC and road-trip EV duties, iterative robustness, 2.6× faster solver |
 | **v0.3.2** ✅ | Validation against 49 measured tests (25 to −20 °C); equivalent-circuit electrical model with Butler–Volmer kinetics, voltage cut-off and CC-CV charging; validated Panasonic NCR18650PF cell |
 | **v0.4** ✅ | Module level: packed unit cell (hex/square), air / PCM / composite-PCM filler, forced air, bottom plate, side ribbon, coolant rise with inlet/outlet cells, pump and fan power from flow |
-| v0.4.1 | Design advisor on the module model: flow, topology, filler, gap as design variables with physical pump/fan energy |
+| **v0.4.1** ✅ | Design advisor on the module model: flow, topology, filler, gap as design variables with physical pump/fan energy |
 | v0.5 | Web app and API |
 
 ## Repository layout
 
 ```
-src/btms/        Python package (params, model, cells, materials, ecm, electrothermal, module, ev, design, report, validation, scenarios, metrics, cli)
+src/btms/        Python package (params, model, cells, materials, ecm, electrothermal, module, module_design, ev, design, report, validation, scenarios, metrics, cli)
 src/btms/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
 validation/      dataset preparation, model identification and validation scripts + processed test data
 docs/VALIDATION.md  validation method and results

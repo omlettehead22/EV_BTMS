@@ -98,7 +98,7 @@ def _cell(args) -> None:
 def _design(args) -> None:
     import re
 
-    from .design import DesignStudy, DutyCycle, Requirements, cooling_options, run_study, thesis_cooling_options
+    from .design import DutyCycle, Requirements
     from .ev import Pack, Vehicle, road_trip_duty, wltc_duty
     from .report import plot_tradeoff
 
@@ -124,6 +124,47 @@ def _design(args) -> None:
     req = Requirements(
         T_max_C=args.t_max, dT_cell_max_C=args.dt_max, T_env_C=args.t_env, recovery_max_min=args.recovery_max_min
     )
+    if args.level == "module":
+        from .module_design import ModuleStudy, run_module_study
+
+        hw = {"none": 0.0, "air": args.air_kg_per_kwh, "bottom": args.liquid_kg_per_kwh}
+        hw |= {"ribbon": args.liquid_kg_per_kwh, "chiller": 0.3}
+        study = ModuleStudy(
+            cell,
+            duty,
+            req,
+            topologies=tuple(args.topologies),
+            air_flows_g_s=tuple(args.air_flows),
+            coolant_flows_g_s=tuple(args.coolant_flows),
+            chiller_inlets_C=tuple(args.chiller_c),
+            fillers=tuple(None if f in ("none", "air") else f for f in args.fillers),
+            gaps_mm=tuple(args.gaps),
+            packing=args.packing,
+            cell_to_cell_max_K=args.cell_to_cell_max,
+            hardware_kg_per_kWh=hw,
+            chiller_cop=args.cop,
+            resistance_margin=args.r_margin,
+        )
+        print(f"Simulating {len(study.designs())} module designs (inlet and outlet cell)...")
+        t0 = time.perf_counter()
+        result = run_module_study(study, workers=args.workers)
+        stem = "module_" + stem
+    else:
+        result = _cell_study(args, cell, duty, req)
+        t0 = result.t0
+    print(result.summary())
+    print(f"({time.perf_counter() - t0:.0f}s)")
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        stem = re.sub(r"[^a-z0-9_.]+", "_", stem.lower())
+        result.table.to_csv(args.out_dir / f"{stem}_designs.csv", index=False)
+        plot_tradeoff(result, args.out_dir / f"{stem}_tradeoff.png")
+        print(f"Wrote {stem}_designs.csv and {stem}_tradeoff.png to {args.out_dir}")
+
+
+def _cell_study(args, cell, duty, req):
+    from .design import DesignStudy, cooling_options, run_study, thesis_cooling_options
+
     hw = {"air": args.air_kg_per_kwh, "liquid": args.liquid_kg_per_kwh}
     if args.thesis_levels:
         options = thesis_cooling_options(hw)
@@ -147,17 +188,11 @@ def _design(args) -> None:
         resistance_margin=args.r_margin,
     )
     n = len(options) * len(study.pcm_choices())
-    print(f"Simulating {n} designs...")
+    print(f"Simulating {n} single-cell designs...")
     t0 = time.perf_counter()
     result = run_study(study, workers=args.workers)
-    print(result.summary())
-    print(f"({time.perf_counter() - t0:.0f}s)")
-    if args.out_dir:
-        args.out_dir.mkdir(parents=True, exist_ok=True)
-        stem = re.sub(r"[^a-z0-9_.]+", "_", stem.lower())
-        result.table.to_csv(args.out_dir / f"{stem}_designs.csv", index=False)
-        plot_tradeoff(result, args.out_dir / f"{stem}_tradeoff.png")
-        print(f"Wrote {stem}_designs.csv and {stem}_tradeoff.png to {args.out_dir}")
+    result.t0 = t0
+    return result
 
 
 def _build_duty(args, cell):
@@ -189,13 +224,13 @@ def _module(args) -> None:
     def cooling_for(kind):
         return {
             "none": None,
-            "air": AirFlow(args.h),
+            "air": AirFlow(flow_g_s_per_cell=args.air_flow),
             "bottom": BottomPlate(coolant=coolant, tim=tim),
             "ribbon": SideRibbon(coolant=coolant, tim=tim, contact_fraction=args.contact),
         }[kind]
 
     if args.compare:
-        modules = [Module(layout, None, None), Module(layout, None, AirFlow(args.h))]
+        modules = [Module(layout, None, None), Module(layout, None, AirFlow(flow_g_s_per_cell=args.air_flow))]
         for kind in ("bottom", "ribbon"):
             for filler in (None, *args.fillers):
                 modules.append(Module(layout, filler, cooling_for(kind)))
@@ -216,8 +251,8 @@ def _module(args) -> None:
         "pump_mW_per_cell",
         "filler_mass_pct",
     ]
-    with pd.option_context("display.width", 160, "display.precision", 2):
-        print(df[cols].to_string(index=False))
+    with pd.option_context("display.width", 160):
+        print(df[cols].round(2).to_string(index=False))
     if args.out:
         df.to_csv(args.out, index=False)
         print(f"Wrote {args.out}")
@@ -251,8 +286,14 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--duration", type=float, help="Seconds (default: time to cross the SOC window +5%%).")
     e.set_defaults(func=_cell)
 
-    d = sub.add_parser("design", help="Sweep cooling x PCM choices and chart the trade-off.")
+    d = sub.add_parser("design", help="Sweep module cooling designs and chart the trade-off.")
     d.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    d.add_argument(
+        "--level",
+        choices=["module", "cell"],
+        default="module",
+        help="module (default): cell inside a packed module; cell: the v0.3 isolated-cell advisor.",
+    )
     g = d.add_argument_group("duty")
     g.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
     g.add_argument("--mode", choices=["charge", "discharge"], default="discharge", help="constant duty")
@@ -271,10 +312,20 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--t-max", type=float, help="Peak limit [degC] (default min(45, datasheet)).")
     r.add_argument("--dt-max", type=float, default=5.0, help="In-cell spread limit [degC].")
     r.add_argument("--recovery-max-min", type=float, help="Must be ready again within this many minutes.")
-    v = d.add_argument_group("design space")
+    r.add_argument("--cell-to-cell-max", type=float, help="module: inlet-to-outlet peak limit [K].")
+    m = d.add_argument_group("module design space (--level module)")
+    m.add_argument("--topologies", nargs="+", default=["none", "air", "bottom", "ribbon"])
+    m.add_argument("--air-flows", type=float, nargs="+", default=[0.15, 0.3, 0.6], help="Air per cell [g/s].")
+    m.add_argument("--coolant-flows", type=float, nargs="+", default=[0.02, 0.05], help="Coolant per cell [g/s].")
+    m.add_argument(
+        "--fillers", nargs="*", default=["none", "RT31", "RT42", "RT31-EG"], help=f"none or {', '.join(PCM_LIBRARY)}"
+    )
+    m.add_argument("--gaps", type=float, nargs="+", default=[2.0], help="Can-to-can gaps [mm].")
+    m.add_argument("--packing", choices=["hex", "square"], default="hex")
+    v = d.add_argument_group("single-cell design space (--level cell)")
     v.add_argument("--air-h", type=float, nargs="+", default=[10, 15, 22, 33, 45, 60])
     v.add_argument("--liquid-h", type=float, nargs="+", default=[100, 180, 330, 600])
-    v.add_argument(
+    d.add_argument(
         "--chiller-c", type=float, nargs="*", default=[15.0], help="Chiller setpoints [degC]; none to disable."
     )
     v.add_argument("--thesis-levels", action="store_true", help="Use the discrete thesis cooling levels instead.")
@@ -306,7 +357,7 @@ def main(argv: list[str] | None = None) -> None:
     mo.add_argument("--contact", type=float, default=0.25, help="Ribbon contact fraction of the circumference.")
     mo.add_argument("--tim-mm", type=float, default=0.5)
     mo.add_argument("--tim-k", type=float, default=2.0)
-    mo.add_argument("--h", type=float, default=30.0, help="Forced-air h for --cooling air [W/m2K].")
+    mo.add_argument("--air-flow", type=float, default=0.3, help="Air flow per cell for --cooling air [g/s].")
     mo.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
     mo.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
     mo.add_argument("--c-rate", type=float, default=1.0)
