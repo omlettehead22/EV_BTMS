@@ -1,7 +1,7 @@
 """Command line interface.
 
 btms thesis                      # the four MSc thesis scenarios
-btms cell M50 --mode discharge --c-rate 1.5 --cooling air --level high --pcm-mm 3
+btms cell M50 --mode discharge --c-rate 1.5 --cooling air --level high --pcm-mm 3 --pcm-grade RT42
 btms cells                       # list the cell library
 """
 
@@ -15,6 +15,7 @@ import pandas as pd
 
 from .cells import CELLS, get_cell
 from .electrothermal import check_limits, constant_current, simulate_cell
+from .materials import PCM_LIBRARY
 from .metrics import summarise_result, summary_table
 from .params import DEFAULT_AUX_POWER, DEFAULT_H, KELVIN, default_params
 from .scenarios import run_scenario, thesis_scenarios
@@ -60,6 +61,10 @@ def _cell(args) -> None:
     soc0 = args.soc0 if args.soc0 is not None else (1.0 if args.mode == "discharge" else 0.1)
     limits = (args.soc_min, args.soc_max)
     duration = args.duration or 3600 * (abs(limits[1] - limits[0]) / args.c_rate) * 1.05
+    from .materials import get_pcm, melt_midpoint_C
+    from .params import Params
+
+    pcm = get_pcm(args.pcm_grade)
     res, load = simulate_cell(
         cell,
         constant_current(cell, args.c_rate, args.mode),
@@ -70,10 +75,14 @@ def _cell(args) -> None:
         case_thickness=args.case_mm * 1e-3,
         soc0=soc0,
         soc_limits=limits,
+        base=Params(pcm=pcm),
     )
     m = summarise_result(res, aux_power_W=DEFAULT_AUX_POWER.get(args.cooling, {}).get(args.level, 0.0))
     a = load.arrays()
-    print(f"{cell.name}: {args.mode} at {args.c_rate}C, {args.cooling} h={h:g} W/m2K, PCM {args.pcm_mm} mm")
+    pcm_text = (
+        f"{args.pcm_grade} {args.pcm_mm:g} mm (melts ~{melt_midpoint_C(pcm):.0f} degC)" if args.pcm_mm > 0 else "none"
+    )
+    print(f"{cell.name}: {args.mode} at {args.c_rate}C, {args.cooling} h={h:g} W/m2K, PCM {pcm_text}")
     print(f"  SOC {soc0:.2f} -> {load.soc:.2f} in {duration / 60:.1f} min")
     print(f"  Peak cell temperature   {m['T_peak_C']:.2f} degC (at {m['TimeToPeak_s'] / 60:.1f} min)")
     print(f"  Max in-cell difference  {m['MaxCellDifference_C']:.2f} degC")
@@ -170,6 +179,7 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--level", choices=["low", "mid", "high"], default="mid")
     e.add_argument("--h", type=float, help="Override convective coefficient [W/m2K].")
     e.add_argument("--pcm-mm", type=float, default=3.0)
+    e.add_argument("--pcm-grade", default="RT31", help=f"PCM grade: {', '.join(PCM_LIBRARY)}")
     e.add_argument("--case-mm", type=float, default=1.0)
     e.add_argument("--t-env", type=float, default=25.0, help="Ambient/coolant [degC].")
     e.add_argument("--soc0", type=float)

@@ -119,3 +119,45 @@ def test_cli_smoke(capsys):
     main(["cell", "MJ1", "--c-rate", "1", "--duration", "120"])
     out = capsys.readouterr().out
     assert "LG INR18650 MJ1" in out and "Peak cell temperature" in out
+
+
+def test_cli_pcm_grade(capsys):
+    main(
+        [
+            "cell",
+            "M50",
+            "--c-rate",
+            "1.5",
+            "--cooling",
+            "air",
+            "--level",
+            "low",
+            "--pcm-grade",
+            "RT42",
+            "--duration",
+            "600",
+        ]
+    )
+    hot = capsys.readouterr().out
+    main(
+        [
+            "cell",
+            "M50",
+            "--c-rate",
+            "1.5",
+            "--cooling",
+            "air",
+            "--level",
+            "low",
+            "--pcm-grade",
+            "RT28HC",
+            "--duration",
+            "600",
+        ]
+    )
+    cool = capsys.readouterr().out
+    assert "RT42 3 mm (melts ~40 degC)" in hot and "RT28HC" in cool
+    peak = lambda out: float(out.split("Peak cell temperature")[1].split()[0])
+    assert peak(cool) < peak(hot)  # RT28HC starts melting below this peak; RT42 never does
+    with pytest.raises(KeyError):
+        main(["cell", "M50", "--pcm-grade", "nope"])
