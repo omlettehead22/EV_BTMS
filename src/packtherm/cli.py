@@ -126,6 +126,7 @@ def _design(args) -> None:
     )
     if args.level == "module":
         from .hardware import PackHardware
+        from .module import Chiller
         from .module_design import ModuleStudy, run_module_study
 
         pack = PackHardware(
@@ -147,7 +148,8 @@ def _design(args) -> None:
             packing=args.packing,
             cell_to_cell_max_K=args.cell_to_cell_max,
             pack=pack,
-            chiller_cop=args.cop,
+            chiller=Chiller(cop=args.cop),
+            chiller_runs=args.chiller_runs,
             resistance_margin=args.r_margin,
         )
         print(f"Simulating {len(study.designs())} module designs (inlet and outlet cell)...")
@@ -189,7 +191,7 @@ def _cell_study(args, cell, duty, req):
         pcm_thicknesses_mm=tuple(x for x in args.pcm_mm if x > 0),
         case_thickness_mm=args.case_mm,
         cells_in_pack=args.cells_in_pack,
-        chiller_cop=args.cop,
+        chiller_cop=args.cop if args.cop is not None else 3.0,
         resistance_margin=args.r_margin,
     )
     n = len(options) * len(study.pcm_choices())
@@ -356,7 +358,13 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--liquid-loop-kg", type=float, default=3.0, help="module: pump, manifolds, hoses per pack.")
     a.add_argument("--air-system-kg", type=float, default=4.0, help="module: fan, plenum, ducts per pack.")
     a.add_argument("--chiller-kg", type=float, default=4.0, help="module: chiller, valve, lines per pack.")
-    a.add_argument("--cop", type=float, default=3.0, help="Chiller COP.")
+    a.add_argument("--cop", type=float, help="Fixed chiller COP (module default: from set-point and ambient; cell: 3).")
+    a.add_argument(
+        "--chiller-runs",
+        choices=["event", "always"],
+        default="event",
+        help="module: chiller on during the event only (then radiator), or throughout.",
+    )
     a.add_argument("--r-margin", type=float, default=0.2, help="Worst-case resistance margin over the published max.")
     d.add_argument("--workers", type=int)
     d.add_argument("--out-dir", type=Path)

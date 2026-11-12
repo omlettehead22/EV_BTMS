@@ -3,6 +3,7 @@ import pytest
 
 from packtherm.cells import LG_M50
 from packtherm.design import DutyCycle, Requirements
+from packtherm.module import Chiller
 from packtherm.module_design import ModuleDesign, ModuleStudy, evaluate_module_design, run_module_study
 from packtherm.report import plot_tradeoff
 
@@ -73,3 +74,14 @@ def test_run_study_front_and_plot(tmp_path):
 def test_unknown_topology():
     with pytest.raises(ValueError):
         small_study(topologies=("immersion",)).designs()
+
+
+def test_chiller_policy():
+    """Chiller only during the event costs less than running it through the rest."""
+    d = ModuleDesign("ribbon", 0.05, 15.0, None)
+    event = evaluate_module_design(small_study(), d)
+    always = evaluate_module_design(small_study(chiller_runs="always"), d)
+    assert 0.0 < event["chiller_Wh"] <= always["chiller_Wh"]
+    # Fixed COP is still available.
+    fixed = evaluate_module_design(small_study(chiller=Chiller(cop=6.0)), d)
+    assert fixed["chiller_Wh"] < event["chiller_Wh"]

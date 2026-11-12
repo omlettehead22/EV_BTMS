@@ -98,6 +98,9 @@ class Coolant:
 
     flow_g_s_per_cell: float = 0.05
     inlet_C: float | None = None  # None = ambient (radiator); below ambient needs a chiller
+    # The chiller holds inlet_C until this time [s], then the loop returns to
+    # the radiator (inlet at ambient). None = chiller on throughout.
+    chiller_until_s: float | None = None
     cp: float = 3500.0  # J/(kg K), 50/50 water-glycol
     rho: float = 1060.0  # kg/m^3
     h_ref: float = 1500.0  # W/(m^2 K) at flow_ref, per cooled area
@@ -122,6 +125,60 @@ class Coolant:
     def rise_K(self, Q_W_per_cell: float) -> float:
         """Inlet-to-outlet coolant temperature rise along the channel."""
         return Q_W_per_cell / (self.mdot * self.cp)
+
+    def inlet_K(self, t: float, T_amb: float) -> float:
+        """Inlet temperature at time t: the chiller set-point while it runs, else ambient."""
+        if self.inlet_C is None or (self.chiller_until_s is not None and t >= self.chiller_until_s):
+            return T_amb
+        return self.inlet_C + KELVIN
+
+    def chiller_on(self, t, T_amb: float):
+        """Mask of times when the chiller holds the coolant below ambient."""
+        t = np.asarray(t, dtype=float)
+        if self.inlet_C is None or self.inlet_C + KELVIN >= T_amb:
+            return np.zeros(t.shape, dtype=bool)
+        if self.chiller_until_s is None:
+            return np.ones(t.shape, dtype=bool)
+        return t < self.chiller_until_s
+
+
+@dataclass(frozen=True)
+class Chiller:
+    """Refrigerant chiller holding the coolant below ambient.
+
+    COP: a fixed value, or (default) a share of the Carnot COP between an
+    evaporator ``evap_approach_K`` below the coolant set-point and a condenser
+    ``cond_approach_K`` above ambient, so it falls as the day gets hotter.
+    ASSUMPTIONS: Carnot share 0.42, chosen so COP = 3.0 with a 15 degC set-point
+    at 35 degC ambient (the value used up to v0.4.3); 5 K and 15 K approaches.
+    Measured automotive air conditioning loses about 5 % of COP between 32.5 and
+    37.5 degC outdoor air (R134a/R1234yf study, Entropy 2020); this model gives
+    about 12 %, so it is on the cautious side.
+
+    Heat leak: a chilled pack also gains heat from the hot day through its
+    enclosure, and the chiller must remove that too. It is charged per cell as
+    (cell heat capacity / tau) x (ambient - set-point), with tau the pack's
+    thermal time constant to ambient. ASSUMPTION: tau = 9 h, an owner's
+    measurement on a parked Nissan Leaf pack.
+    """
+
+    cop: float | None = None
+    carnot_fraction: float = 0.42
+    evap_approach_K: float = 5.0
+    cond_approach_K: float = 15.0
+    pack_time_constant_h: float = 9.0
+
+    def cop_at(self, T_set: float, T_amb: float) -> float:
+        """COP for coolant set-point and ambient [K]."""
+        if self.cop is not None:
+            return self.cop
+        T_e = T_set - self.evap_approach_K
+        T_c = T_amb + self.cond_approach_K
+        return self.carnot_fraction * T_e / (T_c - T_e)
+
+    def leak_W_per_cell(self, cell: Cell, T_set: float, T_amb: float) -> float:
+        UA = cell.mass * cell.cp / (self.pack_time_constant_h * 3600.0)
+        return UA * max(T_amb - T_set, 0.0)
 
 
 @dataclass(frozen=True)
@@ -330,16 +387,24 @@ class ModuleResult:
         """Largest in-cell spread: radial (model) plus axial (estimate)."""
         return float(np.max(self.res.dT_cell + self.dT_axial))
 
-    def chiller_energy_Wh(self, cop: float, until_s: float | None = None) -> float:
-        """Chiller electricity per cell: heat taken by sub-ambient coolant / COP."""
+    def chiller_energy_Wh(self, chiller: Chiller | float = 3.0, until_s: float | None = None) -> float:
+        """Chiller electricity per cell while it runs: (heat taken from the cell
+        + heat leaking in from ambient) / COP. A number is a fixed COP."""
+        if not isinstance(chiller, Chiller):
+            chiller = Chiller(cop=float(chiller))
         c = self.module.cooling
-        if not isinstance(c, (BottomPlate, SideRibbon)) or c.coolant.inlet_C is None:
+        if not isinstance(c, (BottomPlate, SideRibbon)) or self.Q_coolant is None:
             return 0.0
-        if c.coolant.inlet_C + KELVIN >= self.T_ambient or self.Q_coolant is None:
+        t = self.res.t
+        n = t.size if until_s is None else int(np.searchsorted(t, until_s, side="right"))
+        on = c.coolant.chiller_on(t[:n], self.T_ambient)
+        if not on.any():
             return 0.0
-        n = self.res.t.size if until_s is None else int(np.searchsorted(self.res.t, until_s, side="right"))
-        dt = np.diff(self.res.t[:n], prepend=0.0)
-        return float(np.sum(np.clip(self.Q_coolant[:n], 0.0, None) * dt)) / cop / 3600.0
+        dt = np.diff(t[:n], prepend=0.0)
+        T_set = c.coolant.inlet_C + KELVIN
+        heat_J = float(np.sum(np.clip(self.Q_coolant[:n], 0.0, None) * dt * on))
+        heat_J += chiller.leak_W_per_cell(self.cell, T_set, self.T_ambient) * float(np.sum(dt * on))
+        return heat_J / chiller.cop_at(T_set, self.T_ambient) / 3600.0
 
     @property
     def pump_W_per_cell(self) -> float:
@@ -351,7 +416,7 @@ class ModuleResult:
         return 0.0
 
 
-def _coolant_temperature(T_in: float, coolant, position: str):
+def _coolant_temperature(T_in, coolant, position: str):
     """Coolant temperature at this cell, in balance with the heat it absorbs.
 
     T_c = T_in + frac Q / (m cp) with Q = sum G (T - T_c), solved for T_c:
@@ -362,7 +427,8 @@ def _coolant_temperature(T_in: float, coolant, position: str):
     a = frac / (coolant.mdot * coolant.cp)
 
     def T(t: float, T_nodes: np.ndarray, G: np.ndarray) -> float:
-        return float((T_in + a * np.dot(G, T_nodes)) / (1.0 + a * G.sum()))
+        T0 = T_in(t) if callable(T_in) else T_in
+        return float((T0 + a * np.dot(G, T_nodes)) / (1.0 + a * G.sum()))
 
     return T
 
@@ -405,8 +471,7 @@ def simulate_module(
             h_outer = cooling.h
     elif isinstance(cooling, (BottomPlate, SideRibbon)):
         c = cooling.coolant
-        T_in = T_amb if c.inlet_C is None else c.inlet_C + KELVIN
-        T_sink = _coolant_temperature(T_in, c, position)
+        T_sink = _coolant_temperature(lambda t, c=c: c.inlet_K(t, T_amb), c, position)
         R_path = cooling.tim.R + 1.0 / c.h
         if isinstance(cooling, BottomPlate):
             k_fill = P.pcm.k
@@ -488,6 +553,7 @@ __all__ = [
     "PCM_REGION",
     "AirFlow",
     "BottomPlate",
+    "Chiller",
     "Coolant",
     "Interface",
     "Layout",

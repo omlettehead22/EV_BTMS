@@ -43,7 +43,6 @@ import pandas as pd
 
 from .cells import Cell
 from .design import (
-    DEFAULT_CHILLER_COP,
     DutyCycle,
     Requirements,
     StudyResult,
@@ -56,6 +55,7 @@ from .materials import get_pcm, melt_midpoint_C
 from .module import (
     AirFlow,
     BottomPlate,
+    Chiller,
     Coolant,
     Interface,
     Layout,
@@ -121,7 +121,10 @@ class ModuleStudy:
     plate: PlateGeometry = field(default_factory=PlateGeometry)
     ribbon: RibbonGeometry = field(default_factory=RibbonGeometry)
     pack: PackHardware = field(default_factory=PackHardware)
-    chiller_cop: float = DEFAULT_CHILLER_COP
+    chiller: Chiller = field(default_factory=Chiller)
+    # "event": the chiller runs while the duty runs, then the loop returns to the
+    # radiator for recovery. "always": the chiller keeps running through the rest.
+    chiller_runs: str = "event"
     resistance_margin: float = 0.2
     dt: float = 2.0
 
@@ -163,7 +166,8 @@ class ModuleStudy:
         elif d.topology == "air":
             cooling = replace(self.air, flow_g_s_per_cell=d.flow_g_s)
         else:
-            coolant = replace(self.coolant, flow_g_s_per_cell=d.flow_g_s, inlet_C=d.inlet_C)
+            until = self.duty.event_duration() if (d.chilled and self.chiller_runs == "event") else None
+            coolant = replace(self.coolant, flow_g_s_per_cell=d.flow_g_s, inlet_C=d.inlet_C, chiller_until_s=until)
             if d.topology == "bottom":
                 cooling = BottomPlate(coolant=coolant, tim=self.tim, plate=self.plate)
             else:
@@ -203,7 +207,7 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
     t_ready = t_stop + recovery_min * 60.0 if recovered else float(res.t[-1])
 
     fan_pump_Wh = r.pump_W_per_cell * t_ready / 3600.0
-    chiller_Wh = r.chiller_energy_Wh(study.chiller_cop, until_s=t_ready)
+    chiller_Wh = r.chiller_energy_Wh(study.chiller, until_s=t_ready)
     aux_Wh = fan_pump_Wh + chiller_Wh
 
     hw = hardware_mass_per_cell(cell, module, study.pack, chilled=d.chilled)
@@ -302,11 +306,26 @@ class ModuleStudyResult(StudyResult):
     filler_axis_label: ClassVar[str] = "Filler between the cans"
     kind_names: ClassVar[dict[str, str]] = {"natural": "no cooling", "air": "forced air", "liquid": "liquid"}
 
+    def _chiller_text(self) -> str:
+        s = self.study
+        when = "during the event" if s.chiller_runs == "event" else "throughout"
+        if s.chiller.cop is not None:
+            return f"chiller COP {s.chiller.cop:g}, on {when}"
+        cops = sorted(
+            {
+                s.chiller.cop_at(t + KELVIN, s.requirements.T_env_C + KELVIN)
+                for t in s.chiller_inlets_C
+                if t < s.requirements.T_env_C
+            }
+        )
+        cop = f"COP {cops[0]:.1f}" if len(cops) == 1 else "COP from temperatures"
+        return f"chiller {cop} at this ambient, on {when}, incl. heat leak"
+
     def footnote(self) -> str:
         s = self.study
         return (
             f"Scored on the coolant-outlet cell, {s.packing} packing. Picks re-checked at worst-case "
-            f"R0 = {s.R0_worst * 1e3:.0f} mΩ. Fan/pump power from flow and pressure drop; chiller COP {s.chiller_cop:g}."
+            f"R0 = {s.R0_worst * 1e3:.0f} mΩ. Fan/pump power from flow and pressure drop; {self._chiller_text()}."
         )
 
     def notes(self) -> list[str]:
