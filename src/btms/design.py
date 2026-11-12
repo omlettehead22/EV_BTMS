@@ -28,6 +28,7 @@ import math
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field, replace
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -391,6 +392,10 @@ class StudyResult:
     table: pd.DataFrame  # one row per design
     picks: dict[str, pd.Series]  # "lightest", "lowest_energy", "balanced" (front designs)
 
+    mass_axis_label: ClassVar[str] = "Mass added per cell (PCM + sleeve + cooling hardware), % of cell mass"
+    filler_axis_label: ClassVar[str] = "PCM"
+    kind_names: ClassVar[dict[str, str]] = {"natural": "natural", "air": "air", "liquid": "liquid"}
+
     @property
     def front(self) -> pd.DataFrame:
         return self.table[self.table.pareto].sort_values("mass_overhead_pct")
@@ -408,6 +413,23 @@ class StudyResult:
             return f"ready again within {d.rest_after_s / 60:.0f} min"
         return f"ready again within {r:g} min"
 
+    def footnote(self) -> str:
+        s = self.study
+        return (
+            f"Picks re-checked at worst-case R0 = {s.R0_worst * 1e3:.0f} mΩ. "
+            f"Fan/pump power ∝ h^3.75, per {s.cells_in_pack}-cell pack; chiller COP {s.chiller_cop:g}."
+        )
+
+    def notes(self) -> list[str]:
+        if (self.table.feasible & (self.table.cooling_kind == "natural")).any():
+            return [
+                (
+                    "NOTE: natural convection is modelled for an isolated cell in free air; inside a packed module "
+                    "neighbouring cells block most of that path, so treat natural-cooling results as optimistic."
+                )
+            ]
+        return []
+
     def summary(self) -> str:
         s, t = self.study, self.table
         lines = [
@@ -418,12 +440,10 @@ class StudyResult:
             ),
             f"{len(t)} designs, {int(t.feasible.sum())} feasible, {int(t.pareto.sum())} on the trade-off front",
         ]
+        if "cell_to_cell_limit_K" in t and np.isfinite(t.cell_to_cell_limit_K.iloc[0]):
+            lines[1] += f", cell-to-cell <= {t.cell_to_cell_limit_K.iloc[0]:g} K"
         lines += [f"WARNING: {w}" for w in self.warnings]
-        if (t.feasible & (t.cooling_kind == "natural")).any():
-            lines.append(
-                "NOTE: natural convection is modelled for an isolated cell in free air; inside a packed module "
-                "neighbouring cells block most of that path, so treat natural-cooling results as optimistic."
-            )
+        lines += self.notes()
         if not self.picks and t.feasible.any():
             lines.append("No robust design: every feasible design fails at worst-case resistance.")
         if not self.picks:
@@ -455,22 +475,21 @@ class StudyResult:
         return "\n".join(lines)
 
 
-def run_study(study: DesignStudy, workers: int | None = None, robustness: bool = True) -> StudyResult:
-    jobs = [(study, c, g, mm) for c in study.cooling_options for g, mm in study.pcm_choices()]
-    table = pd.DataFrame(_map(_evaluate_args, jobs, workers))
+def select_front(table: pd.DataFrame, recheck, check: bool) -> dict[str, pd.Series]:
+    """Mark the Pareto front, re-check it at worst case, and make the picks.
 
-    # Front + robustness, iterated: front designs that fail at worst-case
-    # resistance are marked fragile and removed, then the front is rebuilt
-    # from what remains until every front design is robust.
+    ``recheck(indices)`` returns, for each row index, a dict with ``R0_mOhm``,
+    ``T_peak_C``, ``fail_reason`` and ``feasible`` at worst-case resistance.
+    Front designs that fail are marked fragile and removed, then the front is
+    rebuilt from what remains until every front design is robust. ``table``
+    is updated in place.
+    """
     table["pareto"] = False
     table["fragile"] = False
     table["R0_worst_mOhm"] = np.nan
     table["T_peak_worst_C"] = np.nan
     table["worst_fail_reason"] = ""
     table["robust"] = table.feasible.copy()
-    R_worst = study.R0_worst
-    check = robustness and R_worst > study.cell.R0_25C
-    by_name = {c.name: c for c in study.cooling_options}
     for _ in range(20):
         cand = np.flatnonzero(table.feasible.to_numpy() & ~table.fragile.to_numpy())
         table["pareto"] = False
@@ -484,21 +503,7 @@ def run_study(study: DesignStudy, workers: int | None = None, robustness: bool =
         todo = [i for i in rows if np.isnan(table.at[i, "T_peak_worst_C"])]
         if not todo:
             break
-        worst = _map(
-            _evaluate_args,
-            [
-                (
-                    study,
-                    by_name[table.at[i, "cooling"]],
-                    None if table.at[i, "pcm_grade"] == "none" else table.at[i, "pcm_grade"],
-                    table.at[i, "pcm_mm"],
-                    R_worst,
-                )
-                for i in todo
-            ],
-            workers,
-        )
-        for i, w in zip(todo, worst):
+        for i, w in zip(todo, recheck(todo)):
             table.at[i, "R0_worst_mOhm"] = w["R0_mOhm"]
             table.at[i, "T_peak_worst_C"] = w["T_peak_C"]
             table.at[i, "worst_fail_reason"] = w["fail_reason"]
@@ -508,9 +513,8 @@ def run_study(study: DesignStudy, workers: int | None = None, robustness: bool =
             break
 
     picks: dict[str, pd.Series] = {}
-    front = table[table.pareto]
-    if len(front):
-        pool = front
+    pool = table[table.pareto]
+    if len(pool):
         picks["lightest"] = pool.sort_values(["mass_overhead_pct", "aux_energy_pct"]).iloc[0]
         picks["lowest_energy"] = pool.sort_values(["aux_energy_pct", "mass_overhead_pct"]).iloc[0]
         m, e = pool.mass_overhead_pct, pool.aux_energy_pct
@@ -519,4 +523,31 @@ def run_study(study: DesignStudy, workers: int | None = None, robustness: bool =
         # Ties (e.g. a two-point front) go to the larger temperature margin.
         ranked = pool.assign(_d=dist).sort_values(["_d", "T_margin_C"], ascending=[True, False])
         picks["balanced"] = ranked.drop(columns="_d").iloc[0]
+    return picks
+
+
+def run_study(study: DesignStudy, workers: int | None = None, robustness: bool = True) -> StudyResult:
+    """Single-cell study (v0.3): an isolated cell in a PCM sleeve and casing."""
+    jobs = [(study, c, g, mm) for c in study.cooling_options for g, mm in study.pcm_choices()]
+    table = pd.DataFrame(_map(_evaluate_args, jobs, workers))
+    by_name = {c.name: c for c in study.cooling_options}
+    R_worst = study.R0_worst
+
+    def recheck(idx):
+        return _map(
+            _evaluate_args,
+            [
+                (
+                    study,
+                    by_name[table.at[i, "cooling"]],
+                    None if table.at[i, "pcm_grade"] == "none" else table.at[i, "pcm_grade"],
+                    table.at[i, "pcm_mm"],
+                    R_worst,
+                )
+                for i in idx
+            ],
+            workers,
+        )
+
+    picks = select_front(table, recheck, robustness and R_worst > study.cell.R0_25C)
     return StudyResult(study, table, picks)

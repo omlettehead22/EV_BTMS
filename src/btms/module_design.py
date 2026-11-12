@@ -1,0 +1,344 @@
+"""Module-level design advisor: cooling topology, flow, chiller, filler and gap.
+
+This is the v0.4.1 successor of the single-cell advisor in :mod:`btms.design`.
+Each design is a :class:`btms.module.Module` and is scored on the cell at the
+coolant outlet (the hottest cell). The cell at the inlet is simulated too, so
+the cell-to-cell spread along the channel is known and can be limited.
+
+Design variables
+----------------
+* topology: ``none`` (sealed module, no cooling), ``air`` (forced air between
+  the cans), ``bottom`` (cold plate under the cells), ``ribbon`` (serpentine
+  tube along the cans)
+* flow per cell (air or coolant): sets h, the coolant temperature rise along
+  the channel and the fan/pump power, all from :mod:`btms.module`
+* coolant inlet: ambient (radiator) or a chiller set-point below ambient
+* filler between the cans: none, a PCM grade or a PCM/expanded-graphite
+  composite (``-EG``)
+* gap between cans
+
+Costs, per cell:
+
+* **mass overhead**: filler + cooling hardware (kg per kWh of cells, as in
+  :data:`btms.design.HARDWARE_KG_PER_KWH`) as % of cell mass
+* **auxiliary energy**: fan or pump electricity computed from flow and
+  pressure drop, plus chiller electricity (heat taken by sub-ambient coolant /
+  COP), until the cell is ready again, as % of the energy the cell moves
+
+Feasibility, on the outlet cell: peak (top of the roll for a bottom plate) and
+in-cell spread (radial + axial estimate) within the requirements, recovery in
+time, and optionally the inlet-to-outlet spread within a limit. The front,
+worst-case-resistance re-check and picks are shared with the single-cell
+advisor (:func:`btms.design.select_front`).
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field, replace
+from typing import ClassVar
+
+import numpy as np
+import pandas as pd
+
+from .cells import Cell
+from .design import (
+    DEFAULT_CHILLER_COP,
+    HARDWARE_KG_PER_KWH,
+    DutyCycle,
+    Requirements,
+    StudyResult,
+    _map,
+    select_front,
+)
+from .electrothermal import check_limits
+from .materials import get_pcm, melt_midpoint_C
+from .module import (
+    AirFlow,
+    BottomPlate,
+    Coolant,
+    Interface,
+    Layout,
+    Module,
+    SideRibbon,
+    module_mass_per_cell_kg,
+    simulate_module,
+)
+from .params import KELVIN, Params
+
+TOPOLOGIES = ("none", "air", "bottom", "ribbon")
+KIND = {"none": "natural", "air": "air", "bottom": "liquid", "ribbon": "liquid"}
+
+
+@dataclass(frozen=True)
+class ModuleDesign:
+    """One point of the sweep."""
+
+    topology: str
+    flow_g_s: float = 0.0  # per cell; air or coolant
+    inlet_C: float | None = None  # coolant inlet; None = ambient
+    filler: str | None = None
+    gap_mm: float = 2.0
+
+    @property
+    def chilled(self) -> bool:
+        return self.inlet_C is not None
+
+    def cooling_label(self) -> str:
+        if self.topology == "none":
+            return "sealed (no cooling)"
+        s = f"{self.topology} {self.flow_g_s:g} g/s"
+        return s + (f", chiller {self.inlet_C:g} °C" if self.chilled else "")
+
+    def filler_label(self, show_gap: bool) -> str:
+        s = self.filler or "no filler"
+        return s + (f", {self.gap_mm:g} mm gap" if show_gap else "")
+
+
+@dataclass(frozen=True)
+class ModuleStudy:
+    cell: Cell
+    duty: DutyCycle
+    requirements: Requirements = field(default_factory=Requirements)
+    topologies: tuple[str, ...] = TOPOLOGIES
+    air_flows_g_s: tuple[float, ...] = (0.15, 0.3, 0.6)
+    coolant_flows_g_s: tuple[float, ...] = (0.02, 0.05)
+    # Chiller set-points; only those below ambient are used. Empty = no chiller.
+    chiller_inlets_C: tuple[float, ...] = (15.0,)
+    fillers: tuple[str | None, ...] = (None, "RT31", "RT42", "RT31-EG")
+    gaps_mm: tuple[float, ...] = (2.0,)
+    packing: str = "hex"
+    coolant: Coolant = field(default_factory=Coolant)  # flow and inlet are swept
+    air: AirFlow = field(default_factory=AirFlow)  # flow is swept
+    tim: Interface = field(default_factory=Interface)
+    contact_fraction: float = 0.25
+    # Inlet-to-outlet peak difference; None = report only.
+    cell_to_cell_max_K: float | None = None
+    hardware_kg_per_kWh: dict = field(
+        default_factory=lambda: {
+            "none": 0.0,
+            "air": HARDWARE_KG_PER_KWH["air"],
+            "bottom": HARDWARE_KG_PER_KWH["liquid"],
+            "ribbon": HARDWARE_KG_PER_KWH["liquid"],
+            "chiller": HARDWARE_KG_PER_KWH["chiller"],
+        }
+    )
+    chiller_cop: float = DEFAULT_CHILLER_COP
+    resistance_margin: float = 0.2
+    dt: float = 2.0
+
+    @property
+    def R0_worst(self) -> float:
+        return max(self.cell.R0_range[1], self.cell.R0_25C) * (1.0 + self.resistance_margin)
+
+    def designs(self) -> list[ModuleDesign]:
+        out: list[ModuleDesign] = []
+        inlets = [None] + [c for c in self.chiller_inlets_C if c < self.requirements.T_env_C]
+        ribbon_gap = SideRibbon().min_gap_mm
+        for gap in self.gaps_mm:
+            for topo in self.topologies:
+                if topo == "none":
+                    out += [ModuleDesign("none", 0.0, None, f, gap) for f in self.fillers]
+                elif topo == "air":
+                    # Air needs open gaps: no filler.
+                    out += [ModuleDesign("air", q, None, None, gap) for q in self.air_flows_g_s]
+                elif topo in ("bottom", "ribbon"):
+                    if topo == "ribbon" and gap < ribbon_gap:
+                        continue
+                    out += [
+                        ModuleDesign(topo, q, t, f, gap)
+                        for q in self.coolant_flows_g_s
+                        for t in inlets
+                        for f in self.fillers
+                    ]
+                else:
+                    raise ValueError(f"Unknown topology {topo!r}; choose from {TOPOLOGIES}")
+        return out
+
+    def module(self, d: ModuleDesign) -> Module:
+        layout = Layout(self.packing, d.gap_mm)
+        if d.topology == "none":
+            cooling = None
+        elif d.topology == "air":
+            cooling = replace(self.air, flow_g_s_per_cell=d.flow_g_s)
+        else:
+            coolant = replace(self.coolant, flow_g_s_per_cell=d.flow_g_s, inlet_C=d.inlet_C)
+            if d.topology == "bottom":
+                cooling = BottomPlate(coolant=coolant, tim=self.tim)
+            else:
+                cooling = SideRibbon(coolant=coolant, tim=self.tim, contact_fraction=self.contact_fraction)
+        return Module(layout, d.filler, cooling)
+
+
+def _base(study: ModuleStudy) -> Params:
+    base = Params()
+    return base.with_(solver=replace(base.solver, dt=study.dt, store_every=max(1, int(60 / study.dt))))
+
+
+def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None = None, inlet: bool = True) -> dict:
+    """Simulate the outlet cell (and the inlet cell if ``inlet``) of one design."""
+    cell = study.cell if R0 is None else replace(study.cell, R0_25C=R0)
+    duty, req = study.duty, study.requirements
+    T_amb = req.T_env_C + KELVIN
+    module = study.module(d)
+    event = duty.event_duration()
+    duration = event + (0.0 if duty.repeat else duty.rest_after_s)
+    kw = {"soc0": duty.soc0, "soc_limits": duty.soc_limits, "base": _base(study)}
+    r = simulate_module(cell, module, duty.profile(cell), duration, req.T_env_C, position="outlet", **kw)
+    res = r.res
+    a = r.load.arrays()
+    dt = np.diff(res.t)
+    throughput_Wh = float(np.sum(np.abs(a["current_A"]) * dt)) * cell.V_nominal / 3600.0
+
+    # Recovery: as in the single-cell advisor, on the outlet cell.
+    active = np.flatnonzero(np.abs(a["current_A"]) > 0)
+    t_stop = float(a["t"][active[-1]] + study.dt) if active.size else 0.0
+    after = res.t >= t_stop - 1e-9
+    ready = after & (r.T_top - T_amb < 1.0) & (res.pcm_fraction < 0.01)
+    recovered = bool(ready.any()) and not duty.repeat
+    recovery_min = float((res.t[ready][0] - t_stop) / 60.0) if recovered else np.nan
+    t_ready = t_stop + recovery_min * 60.0 if recovered else float(res.t[-1])
+
+    fan_pump_Wh = r.pump_W_per_cell * t_ready / 3600.0
+    chiller_Wh = r.chiller_energy_Wh(study.chiller_cop, until_s=t_ready)
+    aux_Wh = fan_pump_Wh + chiller_Wh
+
+    cell_kWh = cell.capacity_Ah * cell.V_nominal / 1e3
+    hw = study.hardware_kg_per_kWh
+    m_hw = (hw.get(d.topology, 0.0) + (hw.get("chiller", 0.0) if d.chilled else 0.0)) * cell_kWh
+    m_fill = module_mass_per_cell_kg(cell, module)
+    m_over = m_hw + m_fill
+    pitch_area = module.layout.area_per_cell(cell)
+    vol_over_pct = 100.0 * (pitch_area / (math.pi * cell.radius**2) - 1.0)
+
+    T_limit = req.T_limit(study.cell, duty.is_charge)
+    T_peak = r.T_peak_C
+    dT = r.dT_cell_max
+    if inlet and d.topology != "none":
+        ri = simulate_module(cell, module, duty.profile(cell), event, req.T_env_C, position="inlet", **kw)
+        T_peak_inlet = ri.T_peak_C
+    else:
+        T_peak_inlet = T_peak if d.topology == "none" else np.nan
+    c2c = T_peak - T_peak_inlet
+    c2c_lim = study.cell_to_cell_max_K
+    c2c_ok = c2c_lim is None or not np.isfinite(c2c) or c2c <= c2c_lim
+
+    if duty.repeat or req.recovery_max_min == math.inf:
+        rec_ok = True
+    elif req.recovery_max_min is None:
+        rec_ok = recovered
+    else:
+        rec_ok = recovered and recovery_min <= req.recovery_max_min
+    fails = (
+        ("hot", T_peak > T_limit),
+        ("uneven", dT > req.dT_cell_max_C),
+        ("slow", not rec_ok),
+        ("spread", not c2c_ok),
+    )
+    rating = [w for w in check_limits(cell, r.load, res) if "rating" in w]
+    show_gap = len(study.gaps_mm) > 1
+    cooling = d.cooling_label()
+    filler = d.filler_label(show_gap)
+    coolant_max = float(r.T_coolant.max() - KELVIN) if r.T_coolant is not None else req.T_env_C
+    return {
+        "design": f"{cooling}, {filler}",
+        "cooling": cooling,
+        "topology": d.topology,
+        "cooling_kind": KIND[d.topology],
+        "chilled": d.chilled,
+        "flow_g_s_per_cell": d.flow_g_s,
+        "inlet_C": d.inlet_C if d.chilled else req.T_env_C,
+        "h_W_m2K": getattr(module.cooling, "h", np.nan)
+        if isinstance(module.cooling, AirFlow)
+        else (module.cooling.coolant.h if module.cooling is not None else 0.0),
+        "filler": d.filler or "none",
+        "pcm": filler,
+        "pcm_melt_C": melt_midpoint_C(get_pcm(d.filler)) if d.filler else np.nan,
+        "gap_mm": d.gap_mm,
+        "R0_mOhm": cell.R0_25C * 1e3,
+        "T_peak_C": T_peak,
+        "T_peak_inlet_C": T_peak_inlet,
+        "cell_to_cell_K": c2c,
+        "cell_to_cell_limit_K": np.inf if c2c_lim is None else c2c_lim,
+        "dT_cell_C": dT,
+        "coolant_out_max_C": coolant_max,
+        "pcm_peak_liquid_fraction": float(res.pcm_fraction.max()),
+        "heat_kJ": res.E_generated / 1e3,
+        "throughput_Wh": throughput_Wh,
+        "pump_mW_per_cell": 1e3 * r.pump_W_per_cell,
+        "fan_pump_Wh": fan_pump_Wh,
+        "chiller_Wh": chiller_Wh,
+        "aux_energy_Wh": aux_Wh,
+        "aux_energy_pct": 100.0 * aux_Wh / throughput_Wh if throughput_Wh > 0 else np.nan,
+        "mass_filler_g": 1e3 * m_fill,
+        "mass_hardware_g": 1e3 * m_hw,
+        "mass_overhead_g": 1e3 * m_over,
+        "mass_overhead_pct": 100.0 * m_over / cell.mass,
+        "volume_overhead_pct": vol_over_pct,
+        "recovery_min": recovery_min,
+        "T_limit_C": T_limit,
+        "T_margin_C": T_limit - T_peak,
+        "feasible": not any(bad for _, bad in fails),
+        # hot = peak over limit, uneven = in-cell spread over limit,
+        # slow = not ready in time, spread = inlet-to-outlet over limit
+        "fail_reason": " · ".join(r_ for r_, bad in fails if bad),
+        "rating_warning": "; ".join(rating),
+    }
+
+
+def _eval_args(args):
+    return evaluate_module_design(*args)
+
+
+@dataclass
+class ModuleStudyResult(StudyResult):
+    mass_axis_label: ClassVar[str] = "Mass added per cell (filler + cooling hardware), % of cell mass"
+    filler_axis_label: ClassVar[str] = "Filler between the cans"
+    kind_names: ClassVar[dict[str, str]] = {"natural": "no cooling", "air": "forced air", "liquid": "liquid"}
+
+    def footnote(self) -> str:
+        s = self.study
+        return (
+            f"Scored on the coolant-outlet cell, {s.packing} packing. Picks re-checked at worst-case "
+            f"R0 = {s.R0_worst * 1e3:.0f} mΩ. Fan/pump power from flow and pressure drop; chiller COP {s.chiller_cop:g}."
+        )
+
+    def notes(self) -> list[str]:
+        t = self.table
+        out = []
+        if (t.topology == "bottom").any():
+            out.append(
+                "NOTE: bottom-plate peak and in-cell spread include an axial estimate (upper bound), "
+                "so bottom-plate results lean conservative."
+            )
+        liquid = t[t.cooling_kind == "liquid"]
+        if len(liquid):
+            out.append(
+                f"NOTE: liquid pump power is the module channel only ({liquid.pump_mW_per_cell.max():.1f} mW/cell at "
+                "most); pack plumbing, radiator fan and chiller compressor idle losses are not included."
+            )
+        return out
+
+
+def run_module_study(study: ModuleStudy, workers: int | None = None, robustness: bool = True) -> ModuleStudyResult:
+    designs = study.designs()
+    table = pd.DataFrame(_map(_eval_args, [(study, d) for d in designs], workers))
+    R_worst = study.R0_worst
+
+    def recheck(idx):
+        # The inlet cell only matters for the spread limit.
+        need_inlet = study.cell_to_cell_max_K is not None
+        return _map(_eval_args, [(study, designs[i], R_worst, need_inlet) for i in idx], workers)
+
+    picks = select_front(table, recheck, robustness and R_worst > study.cell.R0_25C)
+    return ModuleStudyResult(study, table, picks)
+
+
+__all__ = [
+    "TOPOLOGIES",
+    "ModuleDesign",
+    "ModuleStudy",
+    "ModuleStudyResult",
+    "evaluate_module_design",
+    "run_module_study",
+]

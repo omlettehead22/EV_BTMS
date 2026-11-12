@@ -133,8 +133,10 @@ def test_bottom_plate_steady_state_matches_analytic():
     assert mean_rise == pytest.approx(expected, rel=0.03)
     # Coolant at the inlet stays at the inlet temperature.
     assert np.allclose(r.T_coolant, 25.0 + KELVIN)
-    # Axial estimate: top - bottom = q L^2 / (2k) while current flows.
-    assert r.dT_axial[i] == pytest.approx(Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k), rel=1e-6)
+    # Axial estimate: top - bottom = q L^2 / (2k) while current flows (q from the
+    # heat reaching the coolant, which is a hair below generation at quasi-steady).
+    assert r.dT_axial[i] == pytest.approx(Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k), rel=2e-3)
+    assert r.dT_axial[i] <= Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k)
 
 
 def test_outlet_coolant_rise_balances_heat():

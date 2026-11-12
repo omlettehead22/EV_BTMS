@@ -386,9 +386,14 @@ def simulate_module(
         T_coolant[0] = T_coolant[1] if T_coolant.size > 1 else T_coolant[0]
     if isinstance(cooling, BottomPlate):
         # Quasi-steady axial profile for uniform generation q with a cooled base:
-        # top - mean = q L^2/(6k), top - bottom = q L^2/(2k).
+        # top - mean = q L^2/(6k), top - bottom = q L^2/(2k). The heat that
+        # must run down the roll is at most what the cell generates and at
+        # most what reaches the coolant (the rest is stored in the cell and
+        # PCM), so q uses the smaller of the two. Still an upper bound: part
+        # of the coolant heat comes through the filler, not the roll.
         V_cell = math.pi * cell.radius**2 * L
-        q = np.maximum(res.heat_W, 0.0) / V_cell
+        Q_down = np.minimum(np.maximum(res.heat_W, 0.0), np.maximum(Q_coolant, 0.0))
+        q = Q_down / V_cell
         dT_axial = q * L * L / (2.0 * cell.k_axial)
         T_top = res.T_max + q * L * L / (6.0 * cell.k_axial)
     else:
