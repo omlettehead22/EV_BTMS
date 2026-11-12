@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50
-from btms.design import DutyCycle, Requirements
-from btms.module_design import ModuleDesign, ModuleStudy, evaluate_module_design, run_module_study
-from btms.report import plot_tradeoff
+from packtherm.cells import LG_M50
+from packtherm.design import DutyCycle, Requirements
+from packtherm.module_design import ModuleDesign, ModuleStudy, evaluate_module_design, run_module_study
+from packtherm.report import plot_tradeoff
 
 DUTY = DutyCycle.constant(2.0, "discharge", soc0=1.0, soc_limits=(0.5, 1.0), rest_after_s=3600)
 

@@ -4,9 +4,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50
-from btms.cli import main
-from btms.design import (
+from packtherm.cells import LG_M50
+from packtherm.cli import main
+from packtherm.design import (
     AIR_FAN,
     CoolingOption,
     DesignStudy,
@@ -20,7 +20,7 @@ from btms.design import (
     run_study,
     thesis_cooling_options,
 )
-from btms.materials import PCM_LIBRARY
+from packtherm.materials import PCM_LIBRARY
 
 # Short, fast duty for tests: 1.5C for 10 min then 20 min rest.
 SHORT = DutyCycle.constant(1.5, "discharge", duration=600, rest_after_s=1200)

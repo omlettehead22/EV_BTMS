@@ -17,7 +17,7 @@
 
 | Step | Uses | Gives |
 |---|---|---|
-| OCV | 25 °C C/20 discharge (+ its I·R) | `src/btms/data/ncr18650pf_ocv.csv` |
+| OCV | 25 °C C/20 discharge (+ its I·R) | `src/packtherm/data/ncr18650pf_ocv.csv` |
 | Kinetics | every HPPC pulse at all 5 temperatures (`validation/identify_panasonic.py`) | R0, Butler–Volmer charge transfer I₀(T) with Eₐ = 45 kJ/mol, low-SOC factor. 10 s overpotential within a median 5–11 % at every temperature |
 | Thermal calibration | **one test**: 25 °C 1C discharge #1, temperature | chamber h = 38.7 W/m²K |
 | Slow polarisation | the same test, voltage | R_d = 27 mΩ, τ_d = 544 s |

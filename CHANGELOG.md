@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.4.2
+- **Renamed to PackTherm.** GitHub repo `EV_BTMS` → `PackTherm` (old links redirect), Python package `btms` → `packtherm` (`import packtherm`), command `btms` → `packtherm`. Entries below keep the old names.
 - **New model picture** (`docs/figures/model_overview.svg`, drawn by `make_model_diagram.py`): the module, one cell's share solved in 1D, and the design loop. Replaces the thesis cell–PCM–casing figure in the README.
 - **Fixed:** v0.4.1 never reached `main` (PR #8 merged into the v0.4 branch after it had been merged); brought across in #9.
 - **Fixed:** `matlab/main_simulation.m` called `plot_additional_results.m`, which was never committed. It now calls `generate_thesis_figures.m`, the routine that replaced it.

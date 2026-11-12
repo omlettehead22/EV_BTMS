@@ -1,8 +1,8 @@
 """Command line interface.
 
-btms thesis                      # the four MSc thesis scenarios
-btms cell M50 --mode discharge --c-rate 1.5 --cooling air --level high --pcm-mm 3 --pcm-grade RT42
-btms cells                       # list the cell library
+packtherm thesis                      # the four MSc thesis scenarios
+packtherm cell M50 --mode discharge --c-rate 1.5 --cooling air --level high --pcm-mm 3 --pcm-grade RT42
+packtherm cells                       # list the cell library
 """
 
 from __future__ import annotations
@@ -259,7 +259,7 @@ def _module(args) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="btms", description="Battery thermal management design toolkit.")
+    ap = argparse.ArgumentParser(prog="packtherm", description="Battery thermal management design toolkit.")
     sub = ap.add_subparsers(dest="cmd")
 
     t = sub.add_parser("thesis", help="Run the four MSc thesis scenarios.")

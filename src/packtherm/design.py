@@ -4,7 +4,7 @@ Design variables
 ----------------
 * cooling: natural convection, forced air at a range of h, liquid at a range
   of h, optionally with a chiller holding the coolant below ambient
-* PCM: none, or a grade from :mod:`btms.materials` at a range of thicknesses
+* PCM: none, or a grade from :mod:`packtherm.materials` at a range of thicknesses
 
 Each design is scored on two costs:
 

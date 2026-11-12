@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from btms.validation import H_CHAMBER, RD_25C, TAU_D, calibrate, load_tests, validate
+from packtherm.validation import H_CHAMBER, RD_25C, TAU_D, calibrate, load_tests, validate
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "validation"
 SURFACE, TEXT, TEXT_2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e1e0d9"
