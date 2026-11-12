@@ -3,8 +3,8 @@
 Usage:
     python validation/identify_panasonic.py /path/to/Panasonic-18650PF-Data
 
-Reproduces the constants in ``btms.cells.NCR18650PF_ECM`` and the OCV table
-``src/btms/data/ncr18650pf_ocv.csv``:
+Reproduces the constants in ``packtherm.cells.NCR18650PF_ECM`` and the OCV table
+``src/packtherm/data/ncr18650pf_ocv.csv``:
 
 * OCV(SOC): the 25 degC C/20 discharge plus its own I*R drop.
 * Kinetics: every HPPC pulse (0.5-6C, 10 s) at 25, 10, 0, -10 and -20 degC.
@@ -15,7 +15,7 @@ Reproduces the constants in ``btms.cells.NCR18650PF_ECM`` and the OCV table
   SOCs, fitted to 1 + a exp(-SOC/b).
 
 The slow branch (Rd, tau_d) and the chamber h are calibrated separately on the
-25 degC 1C discharge #1 by ``btms.validation.calibrate``.
+25 degC 1C discharge #1 by ``packtherm.validation.calibrate``.
 
 Source: P. Kollmeyer, "Panasonic 18650PF Li-ion Battery Data", Mendeley Data v1
 (2018), doi:10.17632/wykht8y7tg.1, CC BY 4.0.

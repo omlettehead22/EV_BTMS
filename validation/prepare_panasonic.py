@@ -46,8 +46,8 @@ FOLDERS = {
     -10: "-10degC",
     -20: "-20degC",
 }
-ROOT_OCV = Path(__file__).resolve().parents[1] / "src" / "btms" / "data" / "ncr18650pf_ocv.csv"
-CAPACITY_C20 = 2.99491  # Ah, from the 25 degC C/20 test (see src/btms/data/ncr18650pf_ocv.csv)
+ROOT_OCV = Path(__file__).resolve().parents[1] / "src" / "packtherm" / "data" / "ncr18650pf_ocv.csv"
+CAPACITY_C20 = 2.99491  # Ah, from the 25 degC C/20 test (see src/packtherm/data/ncr18650pf_ocv.csv)
 
 
 def load(path: Path) -> dict[str, np.ndarray]:
@@ -98,7 +98,7 @@ def resample(d: dict, dt: float = 1.0) -> dict[str, np.ndarray]:
     mids = 0.5 * (edges[1:] + edges[:-1])
     return {
         "t": edges[:-1],
-        "current_A": -bin_means(t, d["Current"], edges),  # dataset: discharge < 0; btms: discharge > 0
+        "current_A": -bin_means(t, d["Current"], edges),  # dataset: discharge < 0; packtherm: discharge > 0
         "voltage_V": bin_means(t, d["Voltage"], edges),
         "T_cell_C": np.interp(mids, t, d["Battery_Temp_degC"]),
     }

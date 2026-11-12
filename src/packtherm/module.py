@@ -215,7 +215,7 @@ Cooling = AirFlow | BottomPlate | SideRibbon | None
 @dataclass(frozen=True)
 class Module:
     layout: Layout = field(default_factory=Layout)
-    filler: str | None = None  # PCM grade from btms.materials, or None for air
+    filler: str | None = None  # PCM grade from packtherm.materials, or None for air
     cooling: Cooling = field(default_factory=BottomPlate)
 
     def __post_init__(self) -> None:

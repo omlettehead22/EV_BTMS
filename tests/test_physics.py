@@ -5,8 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from btms import default_params, simulate
-from btms.params import KELVIN, PCM
+from packtherm import default_params, simulate
+from packtherm.params import KELVIN, PCM
 
 
 def test_adiabatic_no_melt_matches_lumped_energy_balance():

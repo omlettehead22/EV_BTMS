@@ -92,7 +92,7 @@ def nmc811_jellyroll_k_axial(T: float = T_REF) -> float:
 
     The copper and aluminium foils dominate. This is the ideal value along the
     winding; how well the roll's ends couple to the can is a separate
-    resistance (see ``btms.module.BottomPlate.R_end``).
+    resistance (see ``packtherm.module.BottomPlate.R_end``).
     """
     k = {
         "cu": -5.409e-7 * T**3 + 7.054e-4 * T**2 - 0.3727 * T + 463.6,
@@ -277,7 +277,7 @@ def params_for_cell(
 def _load_ocv_table(name: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
     from importlib import resources
 
-    text = resources.files("btms").joinpath(f"data/{name}").read_text()
+    text = resources.files("packtherm").joinpath(f"data/{name}").read_text()
     rows = [line.split(",") for line in text.splitlines() if line and not line.startswith(("#", "soc"))]
     soc, ocv = zip(*((float(a), float(b)) for a, b in rows))
     return soc, ocv

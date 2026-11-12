@@ -36,7 +36,7 @@ from .params import KELVIN
 DEFAULT_DATA = Path(__file__).resolve().parents[2] / "validation" / "data" / "panasonic_18650pf"
 
 # Calibrated on 25C_1C_discharge_1 by `calibrate()`; reproduced by the tests.
-# Rd and tau_d are stored on the cell (btms.cells.NCR18650PF_ECM).
+# Rd and tau_d are stored on the cell (packtherm.cells.NCR18650PF_ECM).
 H_CHAMBER = 38.7  # W/(m^2 K)
 RD_25C = PANASONIC_NCR18650PF.ecm.Rd_25C
 TAU_D = PANASONIC_NCR18650PF.ecm.tau_d

@@ -7,7 +7,7 @@ makes any of them fail, the README's validation claims are no longer true.
 import numpy as np
 import pytest
 
-from btms.validation import DEFAULT_DATA, H_CHAMBER, RD_25C, TAU_D, calibrate, load_tests, run_test
+from packtherm.validation import DEFAULT_DATA, H_CHAMBER, RD_25C, TAU_D, calibrate, load_tests, run_test
 
 pytestmark = pytest.mark.skipif(not DEFAULT_DATA.exists(), reason="validation data not present")
 

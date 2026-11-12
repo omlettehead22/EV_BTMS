@@ -6,10 +6,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50
-from btms.electrothermal import constant_current, simulate_cell
-from btms.materials import PCM_LIBRARY, composite_pcm, get_pcm
-from btms.module import (
+from packtherm.cells import LG_M50
+from packtherm.electrothermal import constant_current, simulate_cell
+from packtherm.materials import PCM_LIBRARY, composite_pcm, get_pcm
+from packtherm.module import (
     AirFlow,
     BottomPlate,
     Coolant,
@@ -21,7 +21,7 @@ from btms.module import (
     pcm_volume_fraction,
     simulate_module,
 )
-from btms.params import KELVIN
+from packtherm.params import KELVIN
 
 # Constant heat: flat resistance, no entropic term -> Q = I^2 R exactly.
 FLAT = replace(LG_M50, Ea_R=0.0, soc_factor=lambda soc: 1.0)

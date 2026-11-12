@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50, LG_MJ1
-from btms.ev import (
+from packtherm.cells import LG_M50, LG_MJ1
+from packtherm.ev import (
     Pack,
     Vehicle,
     consumption_Wh_per_km,
@@ -12,7 +12,7 @@ from btms.ev import (
     wltc_class3b,
     wltc_duty,
 )
-from btms.materials import PCM_LIBRARY, get_pcm
+from packtherm.materials import PCM_LIBRARY, get_pcm
 
 
 def test_wltc_trace_matches_regulation():

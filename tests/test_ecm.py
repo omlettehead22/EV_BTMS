@@ -4,9 +4,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50, PANASONIC_NCR18650PF
-from btms.ecm import ECM, ECMState
-from btms.electrothermal import ElectroThermalLoad, MeasuredHeatLoad, constant_current, simulate_cell
+from packtherm.cells import LG_M50, PANASONIC_NCR18650PF
+from packtherm.ecm import ECM, ECMState
+from packtherm.electrothermal import ElectroThermalLoad, MeasuredHeatLoad, constant_current, simulate_cell
 
 PF = PANASONIC_NCR18650PF
 ECM_PF = PF.ecm

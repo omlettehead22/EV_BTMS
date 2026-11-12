@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from btms import default_params, run_scenario, thesis_scenarios
-from btms.metrics import summary_table
-from btms.params import KELVIN
-from btms.scenarios import Scenario
+from packtherm import default_params, run_scenario, thesis_scenarios
+from packtherm.metrics import summary_table
+from packtherm.params import KELVIN
+from packtherm.scenarios import Scenario
 
 RESULTS = Path(__file__).resolve().parents[1] / "matlab" / "results"
 
