@@ -461,19 +461,55 @@ class ModuleResult:
         return 0.0
 
 
-def _coolant_temperature(T_in, coolant, position: str):
+def coolant_holdup_kg(cell: Cell, module: Module) -> float:
+    """Coolant held in one cell's share of the channel [kg] (zero for air)."""
+    c = module.cooling
+    if isinstance(c, BottomPlate):
+        g = c.plate
+        v = module.layout.area_per_cell(cell) * g.channel_coverage * g.channel_height_mm * 1e-3
+    elif isinstance(c, SideRibbon):
+        g = c.tube
+        h = g.height_fraction * cell.height
+        t, w = g.thickness_mm * 1e-3, g.wall_mm * 1e-3
+        n_ribs = max(0, math.floor(h / (g.rib_pitch_mm * 1e-3)) - 1)
+        a_al = 2.0 * (h + t) * w + n_ribs * (t - 2.0 * w) * g.rib_mm * 1e-3
+        length = module.layout.pitch(cell) * g.weave_factor / g.rows_per_ribbon
+        v = (h * t - a_al) * length
+    else:
+        return 0.0
+    return c.coolant.rho * v
+
+
+def _coolant_temperature(T_in, coolant, position: str, holdup_kg: float = 0.0):
     """Coolant temperature at this cell, in balance with the heat it absorbs.
 
-    T_c = T_in + frac Q / (m cp) with Q = sum G (T - T_c), solved for T_c:
-    T_c = (T_in + a sum(G T)) / (1 + a sum(G)),  a = frac / (m cp).
-    Stable for any ratio of contact conductance to coolant capacity flow.
+    Energy balance on the coolant in this cell's share of the channel:
+        M cp dTc/dt = (m cp / frac) (T_in - Tc) + sum G (T - Tc)
+    with frac the share of the channel upstream of the cell (outlet 1, inlet
+    0), M the coolant held per cell and m the flow per cell. Solved implicitly
+    each step (stable for any ratio of contact conductance to flow):
+        Tc = (b Tc_old + (m cp/frac) T_in + sum(G T)) / (b + m cp/frac + sum G),
+    b = M cp / dt. With M = 0 this is the steady balance used up to v0.4.6.
+    The outlet temperature then lags heat input by about M / m (the time the
+    coolant takes to pass one cell's share of the channel per unit flow).
     """
     frac = {"outlet": 1.0, "inlet": 0.0, "mean": 0.5}[position]
-    a = frac / (coolant.mdot * coolant.cp)
+    state = {"t": None, "Tc": None}
 
     def T(t: float, T_nodes: np.ndarray, G: np.ndarray) -> float:
         T0 = T_in(t) if callable(T_in) else T_in
-        return float((T0 + a * np.dot(G, T_nodes)) / (1.0 + a * G.sum()))
+        if frac == 0.0:
+            Tc = float(T0)
+        else:
+            flow = coolant.mdot * coolant.cp / frac  # W/K
+            gs, gt = float(G.sum()), float(np.dot(G, T_nodes))
+            b = 0.0
+            if holdup_kg > 0 and state["t"] is not None and t > state["t"]:
+                b = holdup_kg * coolant.cp / (t - state["t"])
+            Tc_old = state["Tc"] if state["Tc"] is not None else 0.0
+            Tc = (b * Tc_old + flow * T0 + gt) / (b + flow + gs)
+        state["t"], state["Tc"] = t, Tc
+        return Tc
 
     return T
 
@@ -491,11 +527,14 @@ def simulate_module(
     base: Params | None = None,
     entropic: bool = True,
     edge: bool = False,
+    coolant_mass: bool = True,
 ) -> ModuleResult:
     """Simulate one cell of the module (the coolant-outlet cell by default).
 
     ``edge=True`` puts the cell on the module wall: a share of its boundary
-    exchanges heat with ambient through ``module.wall``.
+    exchanges heat with ambient through ``module.wall``. ``coolant_mass``
+    gives the liquid coolant its heat capacity (the coolant held in the cell's
+    share of the channel); False reproduces the steady balance of v0.4.6.
     """
     T_amb = T_ambient_C + KELVIN
     base = (base or Params()).with_(T_initial=T_amb)
@@ -521,7 +560,8 @@ def simulate_module(
             h_outer = cooling.h
     elif isinstance(cooling, (BottomPlate, SideRibbon)):
         c = cooling.coolant
-        T_sink = _coolant_temperature(lambda t, c=c: c.inlet_K(t, T_amb), c, position)
+        holdup = coolant_holdup_kg(cell, module) if coolant_mass else 0.0
+        T_sink = _coolant_temperature(lambda t, c=c: c.inlet_K(t, T_amb), c, position, holdup)
         R_path = cooling.tim.R + 1.0 / c.h
         if isinstance(cooling, BottomPlate):
             k_fill = P.pcm.k
@@ -624,6 +664,7 @@ __all__ = [
     "RibbonGeometry",
     "SideRibbon",
     "Wall",
+    "coolant_holdup_kg",
     "module_mass_per_cell_kg",
     "module_params",
     "pcm_volume_fraction",

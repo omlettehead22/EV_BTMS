@@ -17,7 +17,7 @@ from .module import AirFlow, BottomPlate, Coolant, Interface, Layout, Module, Si
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.4.6"
+__version__ = "0.4.7"
 
 __all__ = [
     "CELLS",
