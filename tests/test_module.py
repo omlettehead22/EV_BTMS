@@ -60,6 +60,34 @@ def test_composite_pcm():
         composite_pcm(base, paraffin_mass_fraction=0.0)
 
 
+def test_air_flow_sets_h_and_fan_power():
+    a, b = AirFlow(), AirFlow(flow_g_s_per_cell=0.6)
+    assert a.h == pytest.approx(30.0)
+    assert b.h == pytest.approx(30.0 * 2**0.8)
+    assert b.pump_power_W_per_cell == pytest.approx(8 * a.pump_power_W_per_cell)
+    assert AirFlow.with_h(45.0).h == pytest.approx(45.0)
+    with pytest.raises(ValueError):
+        AirFlow(flow_g_s_per_cell=0.0)
+
+
+def test_ribbon_needs_room():
+    with pytest.raises(ValueError):
+        Module(Layout("hex", 1.0), None, SideRibbon())
+    Module(Layout("hex", 1.0), None, SideRibbon(min_gap_mm=0.8))
+
+
+def test_chiller_energy_counts_heat_to_cold_coolant():
+    prof = constant_current(LG_M50, 1.0)
+    warm = simulate_module(LG_M50, Module(filler=None, cooling=SideRibbon()), prof, 1800, 25.0)
+    cold = simulate_module(
+        LG_M50, Module(filler=None, cooling=SideRibbon(coolant=Coolant(inlet_C=15.0))), prof, 1800, 25.0
+    )
+    assert warm.chiller_energy_Wh(3.0) == 0.0
+    expected = np.sum(np.clip(cold.Q_coolant, 0, None) * np.diff(cold.res.t, prepend=0.0)) / 3.0 / 3600
+    assert cold.chiller_energy_Wh(3.0) == pytest.approx(expected)
+    assert cold.T_peak_C < warm.T_peak_C
+
+
 def test_coolant_scaling():
     c = Coolant()
     c2 = replace(c, flow_g_s_per_cell=0.1)
@@ -70,7 +98,7 @@ def test_coolant_scaling():
 
 def test_air_flow_module_equals_bare_cell_model():
     """No filler + forced air is exactly the v0.3 bare-cell model."""
-    m = Module(filler=None, cooling=AirFlow(30.0, flow_g_s_per_cell=None))
+    m = Module(filler=None, cooling=AirFlow(track_rise=False))
     a = simulate_module(LG_M50, m, constant_current(LG_M50, 1.5), 900, 25.0)
     b, _ = simulate_cell(
         LG_M50, constant_current(LG_M50, 1.5), 900, 30.0, 298.15, pcm_thickness=0, case_thickness=0, base=None
@@ -105,8 +133,10 @@ def test_bottom_plate_steady_state_matches_analytic():
     assert mean_rise == pytest.approx(expected, rel=0.03)
     # Coolant at the inlet stays at the inlet temperature.
     assert np.allclose(r.T_coolant, 25.0 + KELVIN)
-    # Axial estimate: top - bottom = q L^2 / (2k) while current flows.
-    assert r.dT_axial[i] == pytest.approx(Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k), rel=1e-6)
+    # Axial estimate: top - bottom = q L^2 / (2k) while current flows (q from the
+    # heat reaching the coolant, which is a hair below generation at quasi-steady).
+    assert r.dT_axial[i] == pytest.approx(Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k), rel=2e-3)
+    assert r.dT_axial[i] <= Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k)
 
 
 def test_outlet_coolant_rise_balances_heat():
@@ -121,11 +151,11 @@ def test_outlet_coolant_rise_balances_heat():
 
 def test_air_warms_along_the_flow():
     prof = constant_current(LG_M50, 1.5)
-    m = Module(filler=None, cooling=AirFlow(30.0, flow_g_s_per_cell=0.3))
+    m = Module(filler=None, cooling=AirFlow())
     a = simulate_module(LG_M50, m, prof, 1800, 25.0, position="inlet")
     b = simulate_module(LG_M50, m, prof, 1800, 25.0, position="outlet")
     # Inlet cell sees ambient air: identical to the bare-cell model with h = 30.
-    c = simulate_module(LG_M50, Module(filler=None, cooling=AirFlow(30.0, None)), prof, 1800, 25.0)
+    c = simulate_module(LG_M50, Module(filler=None, cooling=AirFlow(track_rise=False)), prof, 1800, 25.0)
     assert np.allclose(a.res.T_max, c.res.T_max, atol=1e-9)
     assert b.T_peak_C > a.T_peak_C + 1.0
     assert b.res.balance_error_pct < 1e-6

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+- **Design advisor on the module model** (`btms.module_design`, now the default for `btms design`):
+  - design variables: topology (sealed / forced air / bottom plate / side ribbon), flow per cell, chiller inlet, gap filler, gap;
+  - scored on the coolant-outlet cell; the inlet cell gives the cell-to-cell spread, with an optional limit (`--cell-to-cell-max`, fail reason `spread`);
+  - fan and pump energy from flow and pressure drop, chiller energy from the heat taken by sub-ambient coolant ÷ COP;
+  - mass = filler + cooling hardware; gap volume reported as `volume_overhead_pct`;
+  - the v0.3 single-cell advisor stays available as `btms design --level cell`.
+- **Fixed:** the advisor used the thesis pump anchor (about 400 mW per cell for liquid), about 200× the pump power computed from flow and pressure drop (1.9 mW).
+- **Fixed:** forced-air h was fixed while flow changed fan power and air rise. h now follows flow (h ∝ flow^0.8); `AirFlow.with_h()` finds the flow for a target h. `btms module --h` is replaced by `--air-flow`.
+- **Fixed:** chiller energy was missing from the module model (`ModuleResult.chiller_energy_Wh`).
+- **Fixed:** a side ribbon could be placed in a gap too small for it; it now needs at least 1.5 mm (`SideRibbon.min_gap_mm`).
+- **Changed:** the bottom-plate axial estimate uses the smaller of generated heat and heat reaching the coolant, rather than generated heat alone. Still an upper bound; bottom-plate in-cell ΔT at 1.5C drops from 9.3 K to 6.4 K.
+- Front, robustness and picks are factored into `design.select_front`, shared by both advisors. Trade-off chart: n/a cells for invalid combinations, adaptive log threshold, labels kept inside the axes.
+
 ## 0.4.0
 - **Module-level model** (`btms.module`, `btms module`):
   - one cell in a packed hex or square array, as an equivalent annulus with an adiabatic outer edge;
