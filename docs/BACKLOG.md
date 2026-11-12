@@ -2,6 +2,15 @@
 
 A review of the model and advisor as of v0.3.1, ranked by how much each item could change a design recommendation. "Fixed" items were found in this review and resolved in v0.3.1.
 
+## Found and fixed during the v0.3.2 validation
+| Issue | Effect |
+|---|---|
+| OCV taken as the mean of the C/20 charge and discharge curves | about 50 mV too high near full charge, so heat was wrong at the start of every test |
+| No low-SOC resistance rise | missed the end-of-discharge voltage collapse and its heat |
+| Low-SOC factor (identified on discharge) also applied when charging | false heat spike at the start of a charge |
+| SOC window hard-stopped charging at SOC = 1 | CC-CV charge ended before the taper; the OCV table now extrapolates and CV ends the charge |
+| Calibrated slow-branch constants stored only in the validation module | the library cell lacked them; now on the cell |
+
 ## Fixed in v0.3.1
 | Issue | Effect before the fix |
 |---|---|
@@ -15,8 +24,8 @@ A review of the model and advisor as of v0.3.1, ranked by how much each item cou
 ## Model fidelity (largest effect on recommendations)
 1. **Isolated-cell assumption.** Each cell gets a uniform h around its whole circumference, and natural convection treats it as alone in free air. In a module, neighbouring cells block most of that path, and a cold plate touches only part of each can. Natural-cooling and liquid-cooling results are both optimistic. **Fix in v0.4:** a module unit cell (square/hex packing, contact fraction to the plate, coolant temperature rise along the plate).
 2. **PCM as a per-cell sleeve inside a 1 mm Al tube.** The sleeve alone adds about 19 % of cell mass, and packs are not built this way. Real PCM packs use a matrix between cells, often expanded-graphite composite with k of 3–10 W/m·K rather than 0.2. **Fix:** composite-PCM grades and module-level PCM geometry (v0.4).
-3. **Lumped DC resistance.** The 30 s DCIR understates heat under sustained load, because polarisation builds up. **Fix:** a 1–2 RC equivalent circuit, **validated against the open Warwick LG M50 dataset** (CC/CV cycling at C/10–1.5C with cell-surface temperatures).
-4. **Charging has no CV taper**, and capacity doesn't depend on temperature. Rapid-charge heat is slightly overstated near the end of charge, and cold-weather capacity is overstated.
+3. ~~Lumped DC resistance~~ **Done in v0.3.2** for the NCR18650PF: an equivalent circuit with Butler–Volmer kinetics and a slow RC branch, validated on 49 tests (docs/VALIDATION.md). **Still open:** the M50 and MJ1 have no measured data in reach (the Warwick M50 data is not reachable from the build environment), so they still use lumped DCIR.
+4. ~~No CV taper~~ **Done in v0.3.2.** **Still open:** capacity does not depend on temperature (cold capacity loss near cut-off below 0 °C), deep-cold kinetics at high current (−20 °C predictive heat up to +3.4 K), and the NCA entropic coefficient (charge under-predicted by about 1.1–1.5 K).
 5. **1D radial model only.** There are no axial gradients and no tab/base cooling. Bottom cooling of cylindrical cells is common in production packs.
 6. **Fan-law anchors are the thesis estimates**, and the h^3.75 law assumes turbulent flow. Laminar cold-plate channels behave differently, where h is set by geometry more than flow. Needs a cold-plate design reference.
 7. **The chiller has a fixed COP** and ignores ambient heat leaking into the chilled loop.

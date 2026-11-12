@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2
+- **Validation** (`btms.validation`, `validation/`, `docs/VALIDATION.md`) against 49 tests of the Panasonic NCR18650PF (Kollmeyer 2018, CC BY 4.0) at 25 to −20 °C. Thermal mode: 0.59 K median RMSE. Fully predictive: 0.62 K. Regression gates are in `tests/test_validation.py`.
+- **Equivalent-circuit electrical model** (`btms.ecm`):
+  - OCV table, ohmic R0, Butler–Volmer charge-transfer overpotential with Arrhenius I₀(T), a slow diffusion RC branch, and a low-SOC factor on discharge;
+  - heat = I·(OCV − V);
+  - discharge stops at V_min; charging switches to CV at V_max and ends at the current cut-off.
+- **New cell** `PF` (Panasonic NCR18650PF), identified from the dataset's own C/20 and HPPC tests (`validation/identify_panasonic.py`).
+- `MeasuredHeatLoad` for thermal-only validation from logged current and voltage.
+- `SimulationResult.T_surface`: outer-surface temperature at every step.
+- Cells without an ECM (M50, MJ1) keep the lumped I²R path unchanged.
+
 ## 0.3.1
 - **Passenger-EV duties** (`btms.ev`): WLTC Class 3b trace (UN GTR 15), road-load vehicle model, pack sizing, a 3× WLTC duty, and a motorway-then-rapid-charge road trip.
 - **Continuous cooling:** h sweeps with fan-law power (P ∝ h^3.75), anchored to the thesis levels. The thesis levels are still available via `thesis_cooling_options()` / `--thesis-levels`.

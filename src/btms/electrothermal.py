@@ -85,14 +85,19 @@ class ElectroThermalLoad:
     log: dict[str, list[float]] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        from .ecm import ECMState
+
         lo, hi = self.soc_limits
         if not (0.0 <= lo < hi <= 1.0) or not (lo <= self.soc0 <= hi):
             raise ValueError("Require 0 <= soc_min < soc_max <= 1 and soc0 inside the window.")
         self.soc = self.soc0
-        self.log = {k: [] for k in ("t", "current_A", "soc", "R_ohm", "Q_irr_W", "Q_rev_W")}
+        self.ecm_state = ECMState() if self.cell.ecm is not None else None
+        self.log = {k: [] for k in ("t", "current_A", "soc", "R_ohm", "Q_irr_W", "Q_rev_W", "V")}
 
     def power(self, t: float, dt: float, T_cell: float) -> float:
         current = float(self.profile(t))
+        if self.ecm_state is not None:
+            return self._power_ecm(t, dt, T_cell, current)
         lo, hi = self.soc_limits
         # Stop at the SOC window edge; a partial final step uses only the
         # charge that fits in the window.
@@ -106,12 +111,72 @@ class ElectroThermalLoad:
         q_irr = current**2 * R
         q_rev = -current * T_cell * self.cell.dUdT(soc_mid) if self.entropic else 0.0
         self.soc = min(max(self.soc - current * dt / (3600.0 * self.cell.capacity_Ah), lo), hi)
-        for k, v in zip(self.log, (t, current, self.soc, R, q_irr, q_rev)):
+        for k, v in zip(self.log, (t, current, self.soc, R, q_irr, q_rev, np.nan)):
+            self.log[k].append(v)
+        return q_irr + q_rev
+
+    def _power_ecm(self, t: float, dt: float, T_cell: float, current: float) -> float:
+        """Equivalent-circuit path: voltage limits, CC-CV charging, heat = I (OCV - V)."""
+        ecm = self.cell.ecm
+        cap_As = 3600.0 * self.cell.capacity_Ah
+        lo, hi = self.soc_limits
+        # A window edge at 0 or 1 is left to the voltage limits (cut-off, CV),
+        # as a real charger or tester would; inner edges are enforced.
+        if (current > 0 and lo > 0.0 and self.soc <= lo) or (current < 0 and hi < 1.0 and self.soc >= hi):
+            current = 0.0
+        soc_mid = self.soc - 0.5 * current * dt / cap_As
+        current, V = self.ecm_state.apply(ecm, current, soc_mid, T_cell, dt)
+        soc_mid = self.soc - 0.5 * current * dt / cap_As
+        q_irr = current * (ecm.ocv(soc_mid) - V)
+        q_rev = -current * T_cell * self.cell.dUdT(soc_mid) if self.entropic else 0.0
+        self.soc = self.soc - current * dt / cap_As
+        if lo > 0.0:
+            self.soc = max(self.soc, lo)
+        if hi < 1.0:
+            self.soc = min(self.soc, hi)
+        R_app = (ecm.ocv(soc_mid) - V) / current if current else np.nan
+        for k, v in zip(self.log, (t, current, self.soc, R_app, q_irr, q_rev, V)):
             self.log[k].append(v)
         return q_irr + q_rev
 
     def arrays(self) -> dict[str, np.ndarray]:
         return {k: np.asarray(v) for k, v in self.log.items()}
+
+
+@dataclass
+class MeasuredHeatLoad:
+    """Heat from a measured test record, for validating the thermal model alone.
+
+    Q = I (OCV(SOC) - V_measured) + reversible heat, with I > 0 on discharge.
+    This removes any electrical-model error, so a temperature mismatch is the
+    thermal model's.
+    """
+
+    t: np.ndarray
+    current_A: np.ndarray  # + discharge
+    voltage_V: np.ndarray
+    ocv: Callable[[float], float]
+    capacity_Ah: float
+    soc0: float = 1.0
+    dUdT: Callable[[float], float] | None = None
+    substeps: int = 5
+
+    def __post_init__(self) -> None:
+        t = np.asarray(self.t, float)
+        charge = np.concatenate([[0.0], np.cumsum(0.5 * (self.current_A[1:] + self.current_A[:-1]) * np.diff(t))])
+        self._soc = self.soc0 - charge / (3600.0 * self.capacity_Ah)
+        self._ocv = np.vectorize(self.ocv)
+
+    def power(self, t: float, dt: float, T_cell: float) -> float:
+        tt = np.linspace(t, t + dt, self.substeps + 1)
+        tt = 0.5 * (tt[1:] + tt[:-1])
+        current = np.interp(tt, self.t, self.current_A)
+        V = np.interp(tt, self.t, self.voltage_V)
+        soc = np.interp(tt, self.t, self._soc)
+        q = current * (self._ocv(soc) - V)
+        if self.dUdT is not None:
+            q = q - current * T_cell * np.array([self.dUdT(x) for x in soc])
+        return float(q.mean())
 
 
 def simulate_cell(

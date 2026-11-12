@@ -167,6 +167,7 @@ class SimulationResult:
     heat_W: np.ndarray  # W, mean cell heat generation over each step
     load: object | None = None  # the Load used, holds its own log
     t_T: np.ndarray | None = None  # times of the stored radial profiles in T
+    T_surface: np.ndarray | None = None  # K, outermost node (cell surface if bare) every step
 
     @property
     def unconverged_steps(self) -> int:
@@ -261,7 +262,8 @@ def simulate(
     slot[store_idx] = np.arange(store_idx.size)
     T_max = np.empty(nt + 1)
     T_min = np.empty(nt + 1)
-    T_max[0] = T_min[0] = P.T_initial
+    T_surf = np.empty(nt + 1)
+    T_max[0] = T_min[0] = T_surf[0] = P.T_initial
     pcm_frac = np.empty(nt + 1)
     pcm_frac[0] = liquid_fraction(T, grid, P)
     zeros = lambda: np.zeros(nt + 1)
@@ -367,6 +369,7 @@ def simulate(
         Tc = T[cell]
         T_max[step + 1] = Tc.max()
         T_min[step + 1] = Tc.min()
+        T_surf[step + 1] = T[-1]
         pcm_frac[step + 1] = liquid_fraction(T, grid, P)
 
     return SimulationResult(
@@ -394,4 +397,5 @@ def simulate(
         heat_W=heat_W,
         load=load,
         t_T=t[store_idx],
+        T_surface=T_surf,
     )
