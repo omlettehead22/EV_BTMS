@@ -160,6 +160,69 @@ def _design(args) -> None:
         print(f"Wrote {stem}_designs.csv and {stem}_tradeoff.png to {args.out_dir}")
 
 
+def _build_duty(args, cell):
+    from .design import DutyCycle
+    from .ev import Pack, Vehicle, road_trip_duty, wltc_duty
+
+    rest = getattr(args, "rest_h", 0.0) * 3600
+    if args.duty == "constant":
+        return DutyCycle.constant(
+            args.c_rate, args.mode, soc0=args.soc0, soc_limits=(args.soc_min, args.soc_max), rest_after_s=rest
+        )
+    pack = Pack.for_energy(cell, args.pack_kwh, args.pack_v)
+    if args.duty == "wltc":
+        return wltc_duty(cell, pack, Vehicle(), cycles=args.cycles, rest_after_s=rest)
+    return road_trip_duty(cell, pack, Vehicle(), speed_kmh=args.speed, charge_c_rate=args.charge_c, rest_after_s=rest)
+
+
+def _module(args) -> None:
+    import pandas as pd
+
+    from .module import AirFlow, BottomPlate, Coolant, Interface, Layout, Module, SideRibbon, compare_modules
+
+    cell = get_cell(args.cell)
+    duty = _build_duty(args, cell)
+    coolant = Coolant(flow_g_s_per_cell=args.flow, inlet_C=args.inlet_c)
+    tim = Interface(args.tim_mm, args.tim_k)
+    layout = Layout(args.packing, args.gap)
+
+    def cooling_for(kind):
+        return {
+            "none": None,
+            "air": AirFlow(args.h),
+            "bottom": BottomPlate(coolant=coolant, tim=tim),
+            "ribbon": SideRibbon(coolant=coolant, tim=tim, contact_fraction=args.contact),
+        }[kind]
+
+    if args.compare:
+        modules = [Module(layout, None, None), Module(layout, None, AirFlow(args.h))]
+        for kind in ("bottom", "ribbon"):
+            for filler in (None, *args.fillers):
+                modules.append(Module(layout, filler, cooling_for(kind)))
+    else:
+        filler = None if args.filler in (None, "air", "none") else args.filler
+        modules = [Module(layout, filler, cooling_for(args.cooling))]
+    print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {args.gap:g} mm gap")
+    rows = compare_modules(cell, modules, duty, args.t_env)
+    df = pd.DataFrame(rows)
+    cols = [
+        "cooling",
+        "filler",
+        "T_peak_inlet_C",
+        "T_peak_outlet_C",
+        "cell_to_cell_K",
+        "dT_cell_outlet_K",
+        "coolant_rise_max_K",
+        "pump_mW_per_cell",
+        "filler_mass_pct",
+    ]
+    with pd.option_context("display.width", 160, "display.precision", 2):
+        print(df[cols].to_string(index=False))
+    if args.out:
+        df.to_csv(args.out, index=False)
+        print(f"Wrote {args.out}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="btms", description="Battery thermal management design toolkit.")
     sub = ap.add_subparsers(dest="cmd")
@@ -227,6 +290,37 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--workers", type=int)
     d.add_argument("--out-dir", type=Path)
     d.set_defaults(func=_design)
+
+    mo = sub.add_parser("module", help="Simulate a cell inside a packed module (inlet and outlet cell).")
+    mo.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    mo.add_argument("--compare", action="store_true", help="Compare all cooling topologies x fillers.")
+    mo.add_argument("--cooling", choices=["none", "air", "bottom", "ribbon"], default="ribbon")
+    mo.add_argument(
+        "--filler", default=None, help=f"Gap filler: air (default) or a PCM grade: {', '.join(PCM_LIBRARY)}"
+    )
+    mo.add_argument("--fillers", nargs="*", default=["RT31", "RT31-EG", "RT42-EG"], help="Fillers for --compare.")
+    mo.add_argument("--packing", choices=["hex", "square"], default="hex")
+    mo.add_argument("--gap", type=float, default=2.0, help="Can-to-can gap [mm].")
+    mo.add_argument("--flow", type=float, default=0.05, help="Coolant flow per cell [g/s].")
+    mo.add_argument("--inlet-c", type=float, help="Coolant inlet [degC] (default ambient; lower = chiller).")
+    mo.add_argument("--contact", type=float, default=0.25, help="Ribbon contact fraction of the circumference.")
+    mo.add_argument("--tim-mm", type=float, default=0.5)
+    mo.add_argument("--tim-k", type=float, default=2.0)
+    mo.add_argument("--h", type=float, default=30.0, help="Forced-air h for --cooling air [W/m2K].")
+    mo.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
+    mo.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
+    mo.add_argument("--c-rate", type=float, default=1.0)
+    mo.add_argument("--soc0", type=float)
+    mo.add_argument("--soc-min", type=float, default=0.0)
+    mo.add_argument("--soc-max", type=float, default=1.0)
+    mo.add_argument("--cycles", type=int, default=3)
+    mo.add_argument("--speed", type=float, default=130.0)
+    mo.add_argument("--charge-c", type=float)
+    mo.add_argument("--pack-kwh", type=float, default=60.0)
+    mo.add_argument("--pack-v", type=float, default=350.0)
+    mo.add_argument("--t-env", type=float, default=25.0)
+    mo.add_argument("--out", type=Path, help="Write results CSV here.")
+    mo.set_defaults(func=_module)
 
     args = ap.parse_args(argv)
     if args.cmd is None:

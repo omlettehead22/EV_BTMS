@@ -168,6 +168,8 @@ class SimulationResult:
     load: object | None = None  # the Load used, holds its own log
     t_T: np.ndarray | None = None  # times of the stored radial profiles in T
     T_surface: np.ndarray | None = None  # K, outermost node (cell surface if bare) every step
+    Q_sinks: dict | None = None  # W, heat into each named sink, every step
+    T_sinks: dict | None = None  # K, temperature of each named sink, every step
 
     @property
     def unconverged_steps(self) -> int:
@@ -196,6 +198,23 @@ class SimulationResult:
         return 100 * abs(self.E_residual) / abs(E) if abs(E) > 0 else 0.0
 
 
+@dataclass
+class Sink:
+    """A heat sink attached to some nodes of the radial grid.
+
+    conductance : callable (grid, params) -> per-node conductance to the sink [W/K]
+    temperature : sink temperature [K], or callable (t, T_nodes, G) -> K given
+                  the node temperatures at the start of the step and this
+                  sink's per-node conductances (lets a coolant warm up in
+                  balance with the heat it absorbs).
+    name        : label used in results
+    """
+
+    conductance: Callable
+    temperature: float | Callable[[float, float], float]
+    name: str = "sink"
+
+
 class Load(Protocol):
     """Electrical load that produces heat inside the cell region.
 
@@ -215,6 +234,7 @@ def simulate(
     h: float = 0.0,
     T_env: float | None = None,
     load: Load | None = None,
+    sinks: list[Sink] | tuple[Sink, ...] = (),
 ) -> SimulationResult:
     """Run one transient event.
 
@@ -224,6 +244,7 @@ def simulate(
     duration    : event length [s]
     h           : outer convective coefficient [W/(m^2 K)]; 0 = adiabatic
     T_env       : ambient / coolant temperature [K] (defaults to P.T_initial)
+    sinks       : extra heat sinks spread over nodes (cold plates, ribbons); see :class:`Sink`
     """
     if (heat_source is None) == (load is None):
         raise ValueError("Give exactly one of heat_source or load.")
@@ -240,6 +261,11 @@ def simulate(
         sink = G_bc / grid.volume[-1]
         diag[-1] -= sink
         b[-1] += sink * T_env
+    sink_G = [np.asarray(sk.conductance(grid, P), dtype=float) for sk in sinks]
+    for G in sink_G:
+        if G.shape != (n,) or np.any(G < 0):
+            raise ValueError("Sink conductance must be a non-negative array with one value per node.")
+        diag -= G / grid.volume
 
     s = P.solver
     nt = max(1, round(duration / s.dt))
@@ -269,6 +295,12 @@ def simulate(
     zeros = lambda: np.zeros(nt + 1)
     dE_gen, dE_bc, dE_cell, dE_pcm, dE_case, dE_st, dE_res = (zeros() for _ in range(7))
     heat_W = zeros()
+    Q_sinks = np.zeros((len(sinks), nt + 1))
+    T_sinks = np.zeros((len(sinks), nt + 1))
+    for k, sk in enumerate(sinks):
+        T_sinks[k, 0] = (
+            sk.temperature(0.0, np.full(n, P.T_initial), sink_G[k]) if callable(sk.temperature) else sk.temperature
+        )
     iters = np.zeros(nt + 1, dtype=int)
     all_converged = True
 
@@ -322,6 +354,13 @@ def simulate(
         q[:] = 0.0
         q[cell] = q_val
         heat_W[step + 1] = q_val * V_cell
+        b_step = b
+        if sinks:
+            b_step = b.copy()
+            for k, (sk, G) in enumerate(zip(sinks, sink_G)):
+                Ts = sk.temperature(t[step], T, G) if callable(sk.temperature) else sk.temperature
+                T_sinks[k, step + 1] = Ts
+                b_step = b_step + G / grid.volume * Ts
 
         T_old = T
         T_guess = T_old.copy()
@@ -332,14 +371,14 @@ def simulate(
             main = C / dt - diag
             if s.scheme == "enthalpy":
                 # Newton on R(T) = rho (h(T) - h_old)/dt - (A T + q + b)
-                resid = rho * (enthalpy(T_guess) - h_old) / dt - (conduction_times(T_guess) + q + b)
+                resid = rho * (enthalpy(T_guess) - h_old) / dt - (conduction_times(T_guess) + q + b_step)
                 delta = solve(main, -resid)
                 T_guess = T_guess + delta
                 if np.max(np.abs(delta)) < s.tolerance:
                     converged = True
                     break
             else:
-                rhs = C / dt * T_old + q + b
+                rhs = C / dt * T_old + q + b_step
                 T_cand = solve(main, rhs)
                 change = np.max(np.abs(T_cand - T_guess))
                 if change < s.tolerance:
@@ -356,6 +395,9 @@ def simulate(
         h_new = enthalpy(T)
         dE_gen[step + 1] = np.sum(q * grid.volume) * dt
         dE_bc[step + 1] = G_bc * (T[-1] - T_env) * dt
+        for k, G in enumerate(sink_G):
+            Q_sinks[k, step + 1] = float(np.sum(G * (T - T_sinks[k, step + 1])))
+            dE_bc[step + 1] += Q_sinks[k, step + 1] * dt
         dE_node = rho * grid.volume * (h_new - h_old)
         h_old = h_new
         dE_cell[step + 1] = dE_node[cell].sum()
@@ -398,4 +440,6 @@ def simulate(
         load=load,
         t_T=t[store_idx],
         T_surface=T_surf,
+        Q_sinks={sk.name: Q_sinks[k] for k, sk in enumerate(sinks)},
+        T_sinks={sk.name: T_sinks[k] for k, sk in enumerate(sinks)},
     )

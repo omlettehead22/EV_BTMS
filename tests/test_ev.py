@@ -64,7 +64,7 @@ def test_c_rates_and_duties():
 
 def test_pcm_library():
     assert get_pcm("RT31") == PCM_LIBRARY["RT31"]
-    melts = [p.T_solidus for p in PCM_LIBRARY.values()]
+    melts = [p.T_solidus for name, p in PCM_LIBRARY.items() if not name.endswith("-EG")]
     assert melts == sorted(melts)
     for p in PCM_LIBRARY.values():
         assert 100e3 < p.latent_heat < 300e3 and 700 < p.rho < 1000
