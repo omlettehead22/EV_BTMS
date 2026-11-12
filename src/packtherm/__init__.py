@@ -1,4 +1,4 @@
-"""btms: battery thermal management design toolkit."""
+"""packtherm: battery thermal management design toolkit."""
 
 from .cells import CELLS, LG_M50, LG_MJ1, PANASONIC_NCR18650PF, Cell, get_cell, params_for_cell
 from .ecm import ECM

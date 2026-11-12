@@ -1,7 +1,7 @@
 """Module-level design advisor: cooling topology, flow, chiller, filler and gap.
 
-This is the v0.4.1 successor of the single-cell advisor in :mod:`btms.design`.
-Each design is a :class:`btms.module.Module` and is scored on the cell at the
+This is the v0.4.1 successor of the single-cell advisor in :mod:`packtherm.design`.
+Each design is a :class:`packtherm.module.Module` and is scored on the cell at the
 coolant outlet (the hottest cell). The cell at the inlet is simulated too, so
 the cell-to-cell spread along the channel is known and can be limited.
 
@@ -11,7 +11,7 @@ Design variables
   the cans), ``bottom`` (cold plate under the cells), ``ribbon`` (serpentine
   tube along the cans)
 * flow per cell (air or coolant): sets h, the coolant temperature rise along
-  the channel and the fan/pump power, all from :mod:`btms.module`
+  the channel and the fan/pump power, all from :mod:`packtherm.module`
 * coolant inlet: ambient (radiator) or a chiller set-point below ambient
 * filler between the cans: none, a PCM grade or a PCM/expanded-graphite
   composite (``-EG``)
@@ -20,7 +20,7 @@ Design variables
 Costs, per cell:
 
 * **mass overhead**: filler + cooling hardware (kg per kWh of cells, as in
-  :data:`btms.design.HARDWARE_KG_PER_KWH`) as % of cell mass
+  :data:`packtherm.design.HARDWARE_KG_PER_KWH`) as % of cell mass
 * **auxiliary energy**: fan or pump electricity computed from flow and
   pressure drop, plus chiller electricity (heat taken by sub-ambient coolant /
   COP), until the cell is ready again, as % of the energy the cell moves
@@ -29,7 +29,7 @@ Feasibility, on the outlet cell: peak (top of the roll for a bottom plate) and
 in-cell spread (radial + axial estimate) within the requirements, recovery in
 time, and optionally the inlet-to-outlet spread within a limit. The front,
 worst-case-resistance re-check and picks are shared with the single-cell
-advisor (:func:`btms.design.select_front`).
+advisor (:func:`packtherm.design.select_front`).
 """
 
 from __future__ import annotations

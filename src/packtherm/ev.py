@@ -9,7 +9,7 @@ A quasi-static longitudinal model turns vehicle speed into battery power:
 
 Pack power is shared equally by Ns x Np cells, and each cell's current is its
 power divided by nominal voltage. The resulting C-rate trace becomes a
-:class:`btms.design.DutyCycle`.
+:class:`packtherm.design.DutyCycle`.
 
 Drive cycle: WLTC Class 3b, UN GTR No. 15 Annex 1 (``data/wltc_class3b.csv``).
 """
@@ -84,7 +84,7 @@ class Pack:
 @lru_cache(maxsize=1)
 def wltc_class3b() -> tuple[np.ndarray, np.ndarray]:
     """(time_s, speed_kmh) at 1 Hz, 1801 points, 23.27 km."""
-    text = resources.files("btms").joinpath("data/wltc_class3b.csv").read_text()
+    text = resources.files("packtherm").joinpath("data/wltc_class3b.csv").read_text()
     rows = [line.split(",") for line in text.splitlines() if line and not line.startswith(("#", "time"))]
     arr = np.array(rows, dtype=float)
     return arr[:, 0], arr[:, 1]

@@ -1,4 +1,4 @@
-# EV_BTMS: battery thermal management design toolkit
+# PackTherm: battery thermal management design toolkit
 
 A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. It models a cell inside a packed module (electro-thermal heat, radial conduction, phase-change filler, coolant warming along the channel), sweeps cooling designs, and finds the trade-off between added mass and fan, pump and chiller energy. It started as an MSc thesis model in MATLAB and is now a validated Python package. The tool answers questions like *"for this cell and duty cycle, which cooling layout, how much flow, and is PCM worth its weight?"*
 
@@ -6,16 +6,16 @@ A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. I
 
 ## Module design advisor (v0.4.1)
 
-`btms design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
+`packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
 
 - **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). The old thesis anchors overstated liquid pumping about 200×.
 - **Mass** = filler + cooling hardware (kg per kWh of cells, overridable). The gap's volume cost is reported as `volume_overhead_pct`.
 - Front, worst-case-resistance re-check and picks are shared with the single-cell advisor, which stays available as `--level cell`.
 
 ```bash
-btms design M50 --duty roadtrip --t-env 35 --out-dir results/
-btms design M50 --c-rate 1.5 --topologies air ribbon --coolant-flows 0.03 0.05 0.08 --gaps 1.5 2 3
-btms design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell advisor
+packtherm design M50 --duty roadtrip --t-env 35 --out-dir results/
+packtherm design M50 --c-rate 1.5 --topologies air ribbon --coolant-flows 0.03 0.05 0.08 --gaps 1.5 2 3
+packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell advisor
 ```
 
 **LG M50, 35 °C road trip** (130 km/h 90→10 %, then 0.7C charge to 80 %; [chart](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png), [CSV](docs/examples/module_m50_roadtrip_130kmh_35c_designs.csv)): 39 designs, 27 feasible.
@@ -34,7 +34,7 @@ btms design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell advisor
 
 ## Module level (v0.4)
 
-Real cells sit in a packed array, so the free-air single-cell picture no longer applies. `btms module` models one cell in its share of a **square or hexagonal array**. By symmetry nothing crosses into the neighbour's share, so the unit cell's outer edge is adiabatic.
+Real cells sit in a packed array, so the free-air single-cell picture no longer applies. `packtherm module` models one cell in its share of a **square or hexagonal array**. By symmetry nothing crosses into the neighbour's share, so the unit cell's outer edge is adiabatic.
 
 - **Gap filler:**
   - air;
@@ -49,9 +49,9 @@ Real cells sit in a packed array, so the free-air single-cell picture no longer 
 - **Flow is the single cooling variable.** It sets h (h ∝ flow^0.8) and the coolant rise; pump or fan power is (flow/ρ)·Δp/η with Δp ∝ flow².
 
 ```bash
-btms module M50 --compare --c-rate 1.5
-btms module M50 --compare --duty roadtrip --t-env 35
-btms module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
+packtherm module M50 --compare --c-rate 1.5
+packtherm module M50 --compare --duty roadtrip --t-env 35
+packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 ```
 
 **LG M50 at 1.5C full discharge, 25 °C** (hex packing, 2 mm gaps, 0.05 g/s coolant per cell; [CSV](docs/examples/m50_module_1.5c_25c.csv)):
@@ -95,9 +95,9 @@ Method, per-test results and known gaps are in [docs/VALIDATION.md](docs/VALIDAT
 Give the advisor a cell, a duty cycle and your limits. It simulates every combination of cooling and PCM choice, then shows the trade-off between **mass added** and **cooling energy** (fans, pumps and chiller):
 
 ```bash
-btms design M50 --duty roadtrip --t-env 35 --out-dir results/   # 130 km/h motorway, then rapid charge, on a 35 °C day
-btms design M50 --duty wltc --cycles 3 --t-env 35               # three back-to-back WLTC cycles
-btms design M50 --c-rate 1.5                                    # constant-current duty
+packtherm design M50 --duty roadtrip --t-env 35 --out-dir results/   # 130 km/h motorway, then rapid charge, on a 35 °C day
+packtherm design M50 --duty wltc --cycles 3 --t-env 35               # three back-to-back WLTC cycles
+packtherm design M50 --c-rate 1.5                                    # constant-current duty
 ```
 
 ![Trade-off chart, LG M50 road trip at 35 °C](docs/examples/m50_roadtrip_130kmh_35c_tradeoff.png)
@@ -119,7 +119,7 @@ Not picked     natural, RT42 2 mm: +35.7% mass, aux 0.00%, but fails (slow) at w
   - Fan/pump power follows the **fan law P ∝ h^3.75**, from h ∝ v^0.8 (Dittus–Boelter) and P ∝ v³. It is anchored to the thesis mid levels.
   - Chiller electricity = heat removed ÷ COP (default 3.0; vapour-compression chillers typically achieve 2.4–3.5).
 - **PCM:** none, or **RT28HC, RT31, OM35 or RT42** (melting 27–43 °C, sourced in `materials.py`) at 2 or 4 mm.
-- **Passenger-EV duties** (`btms.ev`):
+- **Passenger-EV duties** (`packtherm.ev`):
   - the **WLTC Class 3b** speed trace (UN GTR 15), driven through a road-load model of a C-segment EV (146 Wh/km on WLTC) and a 61 kWh 96s35p pack of M50 cells;
   - a **road trip**: 130 km/h from 90 % to 10 %, then rapid charge at the cell's rated C-rate to 80 %.
 
@@ -161,7 +161,7 @@ Not picked     natural, RT42 2 mm: +35.7% mass, aux 0.00%, but fails (slow) at w
 
 **New in v0.2**
 - **Heat generation from real cells.** Heat comes from current via Q = I²R(SOC, T) − I·T·dU/dT(SOC), with coulomb-counted SOC and temperature feeding back into resistance every step.
-- **Cell library** with every value sourced (see `src/btms/cells.py`):
+- **Cell library** with every value sourced (see `src/packtherm/cells.py`):
   - **LG M50 21700:** 5 Ah, NMC811/graphite-SiOx, fully characterised by Chen 2020 and O'Regan 2022.
   - **LG MJ1 18650:** 3.5 Ah, same chemistry family.
   - Jelly-roll heat capacity and radial conductivity are computed from O'Regan's measured layer properties. Entropic coefficients are the paper's electrode fits mapped to cell SOC.
@@ -170,9 +170,9 @@ Not picked     natural, RT42 2 mm: +35.7% mass, aux 0.00%, but fails (slow) at w
 - **Faster, exactly conservative solver.** Newton iteration on the enthalpy residual replaces the thesis Picard scheme. It converges on every step in about 2 iterations (the old scheme stalled on 5–19 steps per run), runs about 3× faster, and closes the energy balance to round-off. The thesis scheme is kept as `SolverSettings(scheme="thesis")` and still reproduces the MATLAB results exactly.
 
 ```bash
-btms cells
-btms cell M50 --mode discharge --c-rate 1.5 --cooling liquid --level mid --pcm-mm 3
-btms cell M50 --mode charge --c-rate 0.7 --soc0 0.1 --soc-max 0.8 --cooling air --level low --pcm-mm 0
+packtherm cells
+packtherm cell M50 --mode discharge --c-rate 1.5 --cooling liquid --level mid --pcm-mm 3
+packtherm cell M50 --mode charge --c-rate 0.7 --soc0 0.1 --soc-max 0.8 --cooling air --level low --pcm-mm 0
 ```
 
 **First design finding: PCM can make things worse.** For an LG M50 at 2.5C discharge (peak cell temperature):
@@ -187,7 +187,7 @@ PCM pays off only when the active cooling is weak. Finding the right thickness f
 
 ## v0.1: Python port
 
-The thesis solver has been ported to Python (`src/btms`) and reproduces the MATLAB results to about 1e-11 on every summary metric for the four thesis scenarios. It also reproduces the mesh and time-step studies. The original MATLAB code is kept in [`matlab/`](matlab/) as the reference.
+The thesis solver has been ported to Python (`src/packtherm`) and reproduces the MATLAB results to about 1e-11 on every summary metric for the four thesis scenarios. It also reproduces the mesh and time-step studies. The original MATLAB code is kept in [`matlab/`](matlab/) as the reference.
 
 | Scenario | Peak T (°C) | In-cell ΔT (°C) | Mean PCM liquid fraction | Fan/pump energy (Wh) | Energy-balance error |
 |---|---|---|---|---|---|
@@ -202,12 +202,12 @@ These results already contain a design insight: with liquid cooling the PCM bare
 
 ```bash
 pip install -e ".[dev]"
-btms                 # run the four thesis scenarios
+packtherm                 # run the four thesis scenarios
 pytest -q            # parity + physics tests
 ```
 
 ```python
-from btms import default_params, simulate
+from packtherm import default_params, simulate
 
 P = default_params()
 res = simulate(P, heat_source=lambda t: 9.4e4, duration=1800, h=60.0, T_env=P.T_coolant)
@@ -242,8 +242,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 ## Repository layout
 
 ```
-src/btms/        Python package (params, model, cells, materials, ecm, electrothermal, module, module_design, ev, design, report, validation, scenarios, metrics, cli)
-src/btms/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
+src/packtherm/        Python package (params, model, cells, materials, ecm, electrothermal, module, module_design, ev, design, report, validation, scenarios, metrics, cli)
+src/packtherm/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
 validation/      dataset preparation, model identification and validation scripts + processed test data
 docs/VALIDATION.md  validation method and results
 docs/BACKLOG.md  known issues and improvement plan

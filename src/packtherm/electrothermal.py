@@ -69,7 +69,7 @@ def from_csv(path: str | Path, time_col: str = "time_s", current_col: str = "cur
 
 @dataclass
 class ElectroThermalLoad:
-    """Stateful :class:`btms.model.Load` driven by a current profile.
+    """Stateful :class:`packtherm.model.Load` driven by a current profile.
 
     soc_limits : current is cut (set to 0) once SOC leaves this window,
                  e.g. a charge to 80 % stops at 0.8.

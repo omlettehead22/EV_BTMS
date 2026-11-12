@@ -3,16 +3,16 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from btms.cells import LG_M50, LG_MJ1, get_cell, nmc811_graphite_dUdT, nmc811_jellyroll_properties, params_for_cell
-from btms.cli import main
-from btms.electrothermal import (
+from packtherm.cells import LG_M50, LG_MJ1, get_cell, nmc811_graphite_dUdT, nmc811_jellyroll_properties, params_for_cell
+from packtherm.cli import main
+from packtherm.electrothermal import (
     ElectroThermalLoad,
     check_limits,
     constant_current,
     segments,
     simulate_cell,
 )
-from btms.params import KELVIN
+from packtherm.params import KELVIN
 
 T25 = 25 + KELVIN
 # Constant-resistance M50: no SOC or temperature dependence, for hand checks.
