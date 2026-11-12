@@ -32,12 +32,9 @@ save(fullfile(outputFolder,'BTMS_complete_results.mat'),...
 
 fprintf('\nResults exported to %s\n',outputFolder);
 
-% Run the original additional plotting function if available
-if exist('plot_additional_results','file') == 2
-    plot_additional_results(resAll,scenarios,summary);
-else
-    warning(['plot_additional_results.m was not found. ',...
-        'The numerical results were still exported successfully.']);
-end
+% Thesis figures (300 dpi PNGs in thesis_results/figures).
+% This used to call plot_additional_results.m, which was never committed;
+% generate_thesis_figures.m is the plotting routine that took its place.
+generate_thesis_figures(resAll,summary,P);
 
 end

@@ -1,8 +1,8 @@
 # EV_BTMS: battery thermal management design toolkit
 
-A transient thermal model of a lithium-ion cell wrapped in a phase-change material (PCM) layer and an aluminium casing, cooled by forced air or a liquid cold plate. It started as an MSc thesis model in MATLAB and is being developed into a Python **BTMS design tool**. The tool answers questions like *"for this cell and duty cycle, do I need PCM, how much cooling, and what does it cost in fan or pump energy?"*
+A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. It models a cell inside a packed module (electro-thermal heat, radial conduction, phase-change filler, coolant warming along the channel), sweeps cooling designs, and finds the trade-off between added mass and fan, pump and chiller energy. It started as an MSc thesis model in MATLAB and is now a validated Python package. The tool answers questions like *"for this cell and duty cycle, which cooling layout, how much flow, and is PCM worth its weight?"*
 
-![Model domain](docs/figures/figure_3_1_model_domain.png)
+![How the model works](docs/figures/model_overview.svg)
 
 ## Module design advisor (v0.4.1)
 
