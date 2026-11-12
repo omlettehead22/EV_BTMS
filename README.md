@@ -263,7 +263,7 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.7** ✅ | Coolant thermal mass in the channel |
 | **v0.4.8** ✅ | 2D (radius × height) bottom-plate model |
 | **v0.4.9** ✅ | Side ribbon on a strip of the can (radius × angle model) |
-| v0.4.x | Remaining accuracy items in [docs/BACKLOG.md](docs/BACKLOG.md) (cell-model gaps) |
+| **v0.4.10** ✅ | Cold-weather cell model: temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
 | v0.5 | Web app and API |
 
 ## Repository layout

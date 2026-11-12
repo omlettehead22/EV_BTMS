@@ -121,3 +121,28 @@ def test_pf_cell_runs_through_design_path():
 def test_ecm_is_frozen_and_replaceable():
     e2 = replace(ECM_PF, Rd_25C=0.05)
     assert e2.Rd(T25) == pytest.approx(0.05)
+
+
+def test_cold_temperature_laws():
+    import math
+    from dataclasses import replace
+
+    from packtherm.cells import PANASONIC_NCR18650PF
+
+    e = PANASONIC_NCR18650PF.ecm
+    T25, Tm10 = 298.15, 263.15
+    R = 8.314462618
+    # Low-SOC rise grows in the cold with its own activation energy; unchanged at 25 degC.
+    assert e.soc_factor(0.05, T25) == pytest.approx(1 + e.soc_a * math.exp(-0.05 / e.soc_b))
+    ratio = (e.soc_factor(0.05, Tm10) - 1) / (e.soc_factor(0.05, T25) - 1)
+    assert ratio == pytest.approx(math.exp(e.Ea_soc / R * (1 / Tm10 - 1 / T25)))
+    # Slow branch: own Arrhenius law, gentler than following the charge-transfer kinetics.
+    assert e.Rd(Tm10) / e.Rd(T25) == pytest.approx(math.exp(e.Ea_Rd / R * (1 / Tm10 - 1 / T25)))
+    coupled = replace(e, Ea_Rd=None)
+    assert coupled.Rd(Tm10) > e.Rd(Tm10)
+    # Charging ignores the low-SOC factor.
+    from packtherm.ecm import ECMState
+
+    V_chg, _, _ = ECMState().step(e, -1.0, 0.05, Tm10, 1.0)
+    V_flat, _, _ = ECMState().step(replace(e, soc_a=0.0), -1.0, 0.05, Tm10, 1.0)
+    assert V_chg == pytest.approx(V_flat)
