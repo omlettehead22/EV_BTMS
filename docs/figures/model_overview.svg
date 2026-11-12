@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#52514e"/></marker>
+  <marker id="arrow-cool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#0f7a55"/></marker>
+  <linearGradient id="coolant" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#8fdcbf"/><stop offset="1" stop-color="#0f7a55"/></linearGradient>
+  <pattern id="roll" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="7" height="7" fill="#9ec5f4"/><line x1="0" y1="0" x2="0" y2="7" stroke="#b9d6f8" stroke-width="2.5"/></pattern>
+</defs>
+<rect width="1200" height="600" fill="#fcfcfb"/>
+<text x="30.0" y="40.0" font-size="22" fill="#0b0b0b" font-weight="700" text-anchor="start">How the model works</text>
+<text x="30.0" y="64.0" font-size="13.5" fill="#52514e" font-weight="400" text-anchor="start">A packed module is reduced to one cell's share, solved in 1D, then swept over design choices.</text>
+<text x="30.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">A</text>
+<text x="50.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">Module, top view</text>
+<rect x="36.0" y="114.0" width="351.0" height="233.0807251039056" rx="10" fill="#f6d79a" stroke="#c98a1b" stroke-width="1"/>
+<path d="M18.0,176.8 C45.0,176.8 45.0,179.5 72.0,179.5 C87.5,179.5 87.5,174.2 103.0,174.2 C118.5,174.2 118.5,179.5 134.0,179.5 C149.5,179.5 149.5,174.2 165.0,174.2 C180.5,174.2 180.5,179.5 196.0,179.5 C211.5,179.5 211.5,174.2 227.0,174.2 C242.5,174.2 242.5,179.5 258.0,179.5 C273.5,179.5 273.5,174.2 289.0,174.2 C304.5,174.2 304.5,179.5 320.0,179.5 C335.5,179.5 335.5,174.2 351.0,174.2 C380.0,174.2 380.0,176.8 409.0,176.8" fill="none" stroke="url(#coolant)" stroke-width="4" stroke-linecap="round"/>
+<path d="M18.0,284.2 C45.0,284.2 45.0,286.9 72.0,286.9 C87.5,286.9 87.5,281.6 103.0,281.6 C118.5,281.6 118.5,286.9 134.0,286.9 C149.5,286.9 149.5,281.6 165.0,281.6 C180.5,281.6 180.5,286.9 196.0,286.9 C211.5,286.9 211.5,281.6 227.0,281.6 C242.5,281.6 242.5,286.9 258.0,286.9 C273.5,286.9 273.5,281.6 289.0,281.6 C304.5,281.6 304.5,286.9 320.0,286.9 C335.5,286.9 335.5,281.6 351.0,281.6 C380.0,281.6 380.0,284.2 409.0,284.2" fill="none" stroke="url(#coolant)" stroke-width="4" stroke-linecap="round"/>
+<circle cx="72.0" cy="150.0" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="134.0" cy="150.0" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="196.0" cy="150.0" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="258.0" cy="150.0" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="320.0" cy="150.0" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="103.0" cy="203.7" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="165.0" cy="203.7" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="227.0" cy="203.7" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="289.0" cy="203.7" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="351.0" cy="203.7" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="72.0" cy="257.4" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="134.0" cy="257.4" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="196.0" cy="257.4" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="258.0" cy="257.4" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="320.0" cy="257.4" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="103.0" cy="311.1" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="165.0" cy="311.1" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="227.0" cy="311.1" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="289.0" cy="311.1" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<circle cx="351.0" cy="311.1" r="24.0" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<polygon points="382.0,221.6 351.0,239.5 320.0,221.6 320.0,185.8 351.0,167.9 382.0,185.8" fill="none" stroke="#0b0b0b" stroke-width="1.6" stroke-dasharray="5 4"/>
+<circle cx="351.0" cy="203.7" r="32.6" fill="none" stroke="#0b0b0b" stroke-width="1.2"/>
+<text x="36.0" y="373.1" font-size="12" fill="#0f7a55" font-weight="600" text-anchor="start">coolant in</text>
+<text x="387.0" y="373.1" font-size="12" fill="#0f7a55" font-weight="600" text-anchor="end">out</text>
+<line x1="122.0" y1="369.1" x2="310.0" y2="369.1" stroke="#0f7a55" stroke-width="1.5" marker-end="url(#arrow-cool)"/>
+<text x="36.0" y="397.1" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">Coolant warms along the ribbon, so the outlet</text>
+<text x="36.0" y="413.3" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">cell runs hottest. Every design is judged on it,</text>
+<text x="36.0" y="429.5" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">and the inlet cell gives the cell-to-cell spread.</text>
+<rect x="36.0" y="454.0807251039056" width="14" height="14" rx="3" fill="url(#roll)" stroke="#256abf"/>
+<text x="58.0" y="465.1" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">cell (jelly roll)</text>
+<rect x="36.0" y="476.0807251039056" width="14" height="14" rx="3" fill="#f6d79a" stroke="#c98a1b"/>
+<text x="58.0" y="487.1" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">filler: PCM, PCM + graphite or air</text>
+<line x1="36.0" y1="505.0807251039056" x2="50.0" y2="505.0807251039056" stroke="#1baf7a" stroke-width="5" stroke-linecap="round"/>
+<text x="58.0" y="509.1" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">cooling: side ribbon (or bottom plate, or air)</text>
+<line x1="36.0" y1="527.0807251039056" x2="50.0" y2="527.0807251039056" stroke="#0b0b0b" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="58.0" y="531.1" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">one cell's share (unit cell) → circle of equal area</text>
+<path d="M387.6,203.7 C421.0,203.7 400.0,230.0 458.0,268.0" fill="none" stroke="#8a8984" stroke-width="1.2" stroke-dasharray="3 4" marker-end="url(#arrow)"/>
+<text x="440.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">B</text>
+<text x="460.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">One cell's share, solved in 1D (radius)</text>
+<path d="M470.0,290.0 L636.9,222.6 A180.0,180.0 0 0 1 636.9,357.4 L470.0,290.0 Z" fill="url(#roll)" stroke="#256abf" stroke-width="1.5"/>
+<path d="M636.9,222.6 L701.8,196.3 A250.0,250.0 0 0 1 701.8,383.7 L636.9,357.4 A180.0,180.0 0 0 0 636.9,222.6 Z" fill="#f6d79a" stroke="#c98a1b" stroke-width="1.5"/>
+<circle cx="476.4" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="489.3" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="502.1" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="515.0" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="527.9" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="540.7" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="553.6" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="566.4" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="579.3" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="592.1" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="605.0" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="617.9" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="630.7" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="643.6" cy="290.0" r="2.6" fill="#256abf"/>
+<circle cx="657.0" cy="290.0" r="2.6" fill="#c98a1b"/>
+<circle cx="671.0" cy="290.0" r="2.6" fill="#c98a1b"/>
+<circle cx="685.0" cy="290.0" r="2.6" fill="#c98a1b"/>
+<circle cx="699.0" cy="290.0" r="2.6" fill="#c98a1b"/>
+<circle cx="713.0" cy="290.0" r="2.6" fill="#c98a1b"/>
+<line x1="470.0" y1="407.651648353978" x2="720.0" y2="407.651648353978" stroke="#52514e" stroke-width="1"/>
+<line x1="470.0" y1="403.651648353978" x2="470.0" y2="411.651648353978" stroke="#52514e" stroke-width="1"/>
+<text x="470.0" y="427.7" font-size="13" fill="#0b0b0b" font-weight="400" text-anchor="middle">0</text>
+<text x="470.0" y="443.7" font-size="11.5" fill="#52514e" font-weight="400" text-anchor="middle">symmetry</text>
+<line x1="650.0" y1="403.651648353978" x2="650.0" y2="411.651648353978" stroke="#52514e" stroke-width="1"/>
+<text x="650.0" y="427.7" font-size="13" fill="#0b0b0b" font-weight="400" text-anchor="middle">r<tspan baseline-shift='sub' font-size='9'>cell</tspan></text>
+<text x="650.0" y="443.7" font-size="11.5" fill="#52514e" font-weight="400" text-anchor="middle">can</text>
+<line x1="720.0" y1="403.651648353978" x2="720.0" y2="411.651648353978" stroke="#52514e" stroke-width="1"/>
+<text x="720.0" y="427.7" font-size="13" fill="#0b0b0b" font-weight="400" text-anchor="middle">r<tspan baseline-shift='sub' font-size='9'>u</tspan></text>
+<text x="720.0" y="443.7" font-size="11.5" fill="#52514e" font-weight="400" text-anchor="middle">no heat crosses</text>
+<text x="460.0" y="174.3" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">Jelly roll: heat q‴(t) from the</text>
+<text x="460.0" y="190.5" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">electro-thermal model; k, ρc<tspan baseline-shift='sub' font-size='9'>p</tspan></text>
+<line x1="580.0" y1="194.348351646022" x2="580.0" y2="272.0" stroke="#8a8984" stroke-width="1"/>
+<text x="670.0" y="138.3" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">Filler: PCM melts and</text>
+<text x="670.0" y="154.5" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">re-freezes (enthalpy form)</text>
+<line x1="692.0" y1="158.348351646022" x2="692.0" y2="250.0" stroke="#8a8984" stroke-width="1"/>
+<line x1="636.9" y1="361.4" x2="650.0" y2="399.7" stroke="#0f7a55" stroke-width="2.2" marker-end="url(#arrow-cool)"/>
+<text x="450.0" y="481.7" font-size="12" fill="#0f7a55" font-weight="400" text-anchor="start">Cooling sink: a side ribbon takes heat at the can</text>
+<text x="450.0" y="497.9" font-size="12" fill="#0f7a55" font-weight="400" text-anchor="start">into coolant at T<tspan baseline-shift='sub' font-size='9'>c</tspan>(t), set by the coolant's own heat</text>
+<text x="450.0" y="514.1" font-size="12" fill="#0f7a55" font-weight="400" text-anchor="start">balance along the channel. A bottom plate takes</text>
+<text x="450.0" y="530.3" font-size="12" fill="#0f7a55" font-weight="400" text-anchor="start">it from every node instead.</text>
+<text x="830.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">C</text>
+<text x="850.0" y="104.0" font-size="15" fill="#0b0b0b" font-weight="700" text-anchor="start">Design loop</text>
+<rect x="830.0" y="128.0" width="340.0" height="58.0" rx="8" fill="#ffffff" stroke="#e1e0d9" stroke-width="1.2"/>
+<text x="846.0" y="152.0" font-size="14" fill="#0b0b0b" font-weight="600" text-anchor="start">Duty cycle</text>
+<text x="846.0" y="172.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">WLTC, motorway + rapid charge, constant C-rate</text>
+<line x1="1000.0" y1="188.0" x2="1000.0" y2="204.0" stroke="#52514e" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="830.0" y="206.0" width="340.0" height="58.0" rx="8" fill="#ffffff" stroke="#e1e0d9" stroke-width="1.2"/>
+<text x="846.0" y="230.0" font-size="14" fill="#0b0b0b" font-weight="600" text-anchor="start">Electro-thermal cell</text>
+<text x="846.0" y="250.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">OCV, resistance, kinetics → heat q‴(t)</text>
+<line x1="1000.0" y1="266.0" x2="1000.0" y2="282.0" stroke="#52514e" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="830.0" y="284.0" width="340.0" height="58.0" rx="8" fill="#ffffff" stroke="#e1e0d9" stroke-width="1.2"/>
+<text x="846.0" y="308.0" font-size="14" fill="#0b0b0b" font-weight="600" text-anchor="start">Module unit cell (B)</text>
+<text x="846.0" y="328.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">inlet and outlet cell, coolant balance</text>
+<line x1="1000.0" y1="344.0" x2="1000.0" y2="360.0" stroke="#52514e" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="830.0" y="362.0" width="340.0" height="58.0" rx="8" fill="#ffffff" stroke="#e1e0d9" stroke-width="1.2"/>
+<text x="846.0" y="386.0" font-size="14" fill="#0b0b0b" font-weight="600" text-anchor="start">Sweep the designs</text>
+<text x="846.0" y="406.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">topology × flow × chiller × filler × gap</text>
+<line x1="1000.0" y1="422.0" x2="1000.0" y2="438.0" stroke="#52514e" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="830.0" y="440.0" width="340.0" height="76.0" rx="8" fill="#ffffff" stroke="#0b0b0b" stroke-width="1.6"/>
+<text x="846.0" y="464.0" font-size="14" fill="#0b0b0b" font-weight="600" text-anchor="start">Trade-off and picks</text>
+<text x="846.0" y="484.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">mass vs fan / pump / chiller energy,</text>
+<text x="846.0" y="502.0" font-size="12" fill="#52514e" font-weight="400" text-anchor="start">re-checked at worst-case resistance</text>
+<text x="1170" y="584" font-size="11" fill="#8a8984" text-anchor="end">Schematic, not to scale. r<tspan baseline-shift='sub' font-size='8'>u</tspan>: radius of a circle with the same area as one cell's share.</text>
+</svg>

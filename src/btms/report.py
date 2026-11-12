@@ -32,13 +32,22 @@ def _design_name(row) -> str:
     return f"{row.cooling}, {row.pcm}"
 
 
-def _upper(ax, y) -> bool:
-    """Is data value y in the upper half of the axes (any y scale)?"""
-    ax.figure.canvas.draw_idle()
-    lo, hi = ax.get_ylim()
-    f = ax.transScale.transform
-    a, b, c = f((0, lo))[1], f((0, hi))[1], f((0, y))[1]
-    return (c - a) / (b - a) > 0.55 if b != a else False
+def _label_offset(ax, x, y, k: int) -> tuple[tuple[float, float], str, str]:
+    """Offset and alignment for the k-th pick label at data point (x, y).
+
+    The front is a staircase that runs right along the top of each point and
+    drops onto the next one, so the region below-left of a front point holds
+    no front line. Labels go there; the leftmost picks go below-right (under
+    their own horizontal segment) and picks near the bottom go above-left
+    (beside the vertical segment that drops onto them).
+    """
+    ax.figure.canvas.draw()
+    fx, fy = ax.transAxes.inverted().transform(ax.transData.transform((x, y)))
+    dy = 22 + 40 * k
+    left = fx > 0.4
+    if fy < 0.3:
+        return ((-16, dy), "right", "bottom") if left else ((16, dy), "left", "bottom")
+    return ((-16, -dy), "right", "top") if left else ((16, -dy), "left", "top")
 
 
 def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
@@ -113,13 +122,14 @@ def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
         ax.scatter(
             [r.mass_overhead_pct], [r.aux_energy_pct], s=240, facecolors="none", edgecolors=TEXT, linewidths=2, zorder=4
         )
+        off, ha, va = _label_offset(ax, r.mass_overhead_pct, r.aux_energy_pct, k)
         ax.annotate(
             f"{' / '.join(names)}\n{_design_name(r)}\n{r.T_peak_C:.1f} °C peak",
             (r.mass_overhead_pct, r.aux_energy_pct),
-            # Labels go below-right of picks in the upper half of the axes,
-            # above-right otherwise, so they stay inside the plot.
-            xytext=(18, (-62 - 44 * k) if _upper(ax, r.aux_energy_pct) else (28 + 44 * k)),
+            xytext=off,
             textcoords="offset points",
+            ha=ha,
+            va=va,
             fontsize=9,
             color=TEXT,
             arrowprops={"arrowstyle": "-", "color": TEXT_2, "linewidth": 1},

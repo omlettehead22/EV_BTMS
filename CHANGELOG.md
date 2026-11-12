@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+- **New model picture** (`docs/figures/model_overview.svg`, drawn by `make_model_diagram.py`): the module, one cell's share solved in 1D, and the design loop. Replaces the thesis cell–PCM–casing figure in the README.
+- **Fixed:** v0.4.1 never reached `main` (PR #8 merged into the v0.4 branch after it had been merged); brought across in #9.
+- **Fixed:** `matlab/main_simulation.m` called `plot_additional_results.m`, which was never committed. It now calls `generate_thesis_figures.m`, the routine that replaced it.
+- **Fixed:** trade-off chart pick labels could cross the front line. Labels now sit below-left of each pick, where the front's staircase never runs.
+
 ## 0.4.1
 - **Design advisor on the module model** (`btms.module_design`, now the default for `btms design`):
   - design variables: topology (sealed / forced air / bottom plate / side ribbon), flow per cell, chiller inlet, gap filler, gap;
