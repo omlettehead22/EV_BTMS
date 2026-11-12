@@ -66,7 +66,7 @@ def test_run_study_front_and_plot(tmp_path):
     front = t[t.pareto]
     assert front.feasible.all() and front.robust.all()
     assert np.isfinite(front.T_peak_worst_C).all()
-    assert "outlet" in r.footnote()
+    assert "hottest cell" in r.footnote()
     plot_tradeoff(r, tmp_path / "t.png")
     assert (tmp_path / "t.png").stat().st_size > 10_000
 
@@ -85,3 +85,14 @@ def test_chiller_policy():
     # Fixed COP is still available.
     fixed = evaluate_module_design(small_study(chiller=Chiller(cop=6.0)), d)
     assert fixed["chiller_Wh"] < event["chiller_Wh"]
+
+
+def test_edge_cells_in_the_score():
+    s = small_study()
+    row = evaluate_module_design(s, ModuleDesign("ribbon", 0.05, 15.0, None))
+    assert np.isfinite(row["T_peak_edge_outlet_C"]) and np.isfinite(row["T_peak_edge_inlet_C"])
+    assert row["T_peak_C"] == max(row["T_peak_interior_C"], row["T_peak_edge_outlet_C"])
+    coolest = min(row["T_peak_inlet_C"], row["T_peak_edge_inlet_C"])
+    assert row["cell_to_cell_K"] == pytest.approx(row["T_peak_C"] - coolest)
+    off = evaluate_module_design(small_study(edge_cells=False), ModuleDesign("ribbon", 0.05, 15.0, None))
+    assert np.isnan(off["T_peak_edge_outlet_C"]) and off["T_peak_C"] == off["T_peak_interior_C"]

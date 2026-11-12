@@ -332,10 +332,30 @@ Cooling = AirFlow | BottomPlate | SideRibbon | None
 
 
 @dataclass(frozen=True)
+class Wall:
+    """The module wall seen by a cell on the edge of the array.
+
+    An edge cell in a hex array has 4 neighbours instead of 6, so a third of
+    its share faces the wall; through it, the cell exchanges heat with the
+    outside air. ASSUMPTION: U = 5 W/m^2K from the unit-cell boundary to
+    ambient (module wall, air gap, pack housing and natural convection).
+    Corner cells (half their boundary) can use fraction=0.5.
+    """
+
+    U: float = 5.0  # W/(m^2 K)
+    fraction: float = 1.0 / 3.0
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.fraction <= 1 or self.U < 0:
+            raise ValueError("Wall fraction must be in [0, 1] and U >= 0.")
+
+
+@dataclass(frozen=True)
 class Module:
     layout: Layout = field(default_factory=Layout)
     filler: str | None = None  # PCM grade from packtherm.materials, or None for air
     cooling: Cooling = field(default_factory=BottomPlate)
+    wall: Wall = field(default_factory=Wall)  # used for edge cells only
 
     def __post_init__(self) -> None:
         if isinstance(self.cooling, AirFlow) and self.filler is not None:
@@ -388,6 +408,7 @@ class ModuleResult:
     Q_coolant: np.ndarray | None  # W per cell into the coolant
     T_top: np.ndarray  # K, estimated hottest point (top of cell for bottom cooling)
     dT_axial: np.ndarray  # K, estimated top-to-bottom difference inside the roll
+    edge: bool = False  # cell on the module wall
 
     @property
     def T_peak_C(self) -> float:
@@ -469,8 +490,13 @@ def simulate_module(
     soc_limits: tuple[float, float] = (0.0, 1.0),
     base: Params | None = None,
     entropic: bool = True,
+    edge: bool = False,
 ) -> ModuleResult:
-    """Simulate one cell of the module (the coolant-outlet cell by default)."""
+    """Simulate one cell of the module (the coolant-outlet cell by default).
+
+    ``edge=True`` puts the cell on the module wall: a share of its boundary
+    exchanges heat with ambient through ``module.wall``.
+    """
     T_amb = T_ambient_C + KELVIN
     base = (base or Params()).with_(T_initial=T_amb)
     P = module_params(cell, module, base)
@@ -517,6 +543,17 @@ def simulate_module(
                 return G
 
             sinks.append(Sink(G_ribbon, T_sink, "coolant"))
+    if edge and module.wall.fraction > 0 and module.wall.U > 0:
+        k_out = P.pcm.k if module.filler is not None else cell.k_radial
+        r_u = module.layout.unit_radius(cell)
+        area = module.wall.fraction * 2.0 * math.pi * r_u * L
+
+        def G_wall(grid, params, area=area, U=module.wall.U, k_out=k_out):
+            G = np.zeros(grid.r.size)
+            G[-1] = area / (grid.dr / (2.0 * k_out) + 1.0 / U)
+            return G
+
+        sinks.append(Sink(G_wall, T_amb, "wall"))
     load = ElectroThermalLoad(cell, profile, soc0=soc0, soc_limits=soc_limits, entropic=entropic)
     res = simulate(P, duration=duration, h=h_outer, T_env=T_amb, load=load, sinks=sinks)
 
@@ -540,7 +577,7 @@ def simulate_module(
     else:
         dT_axial = np.zeros_like(res.t)
         T_top = res.T_max.copy()
-    return ModuleResult(cell, module, position, res, load, T_amb, T_coolant, Q_coolant, T_top, dT_axial)
+    return ModuleResult(cell, module, position, res, load, T_amb, T_coolant, Q_coolant, T_top, dT_axial, edge)
 
 
 def module_mass_per_cell_kg(cell: Cell, module: Module) -> float:
@@ -586,6 +623,7 @@ __all__ = [
     "PlateGeometry",
     "RibbonGeometry",
     "SideRibbon",
+    "Wall",
     "module_mass_per_cell_kg",
     "module_params",
     "pcm_volume_fraction",

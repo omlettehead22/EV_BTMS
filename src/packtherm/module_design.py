@@ -17,6 +17,11 @@ Design variables
   composite (``-EG``)
 * gap between cans (a side ribbon widens it to fit the tube and its bonds)
 
+Cells simulated per design: the interior cell at the coolant outlet (scored,
+with recovery), the interior inlet cell, and edge cells on the module wall at
+both ends (``edge_cells``). Feasibility uses the hottest of them; the
+cell-to-cell spread is hottest minus coolest.
+
 Costs, per cell:
 
 * **mass overhead**: filler + cooling hardware built up from geometry
@@ -63,6 +68,7 @@ from .module import (
     PlateGeometry,
     RibbonGeometry,
     SideRibbon,
+    Wall,
     module_mass_per_cell_kg,
     simulate_module,
 )
@@ -116,8 +122,12 @@ class ModuleStudy:
     air: AirFlow = field(default_factory=AirFlow)  # flow is swept
     tim: Interface = field(default_factory=Interface)
     contact_fraction: float = 0.25
-    # Inlet-to-outlet peak difference; None = report only.
+    # Hottest-to-coolest cell peak difference; None = report only.
     cell_to_cell_max_K: float | None = None
+    # Also simulate cells on the module wall (edge cells) at both ends of the
+    # channel; the hottest and coolest cells then include them.
+    edge_cells: bool = True
+    wall: Wall = field(default_factory=Wall)
     plate: PlateGeometry = field(default_factory=PlateGeometry)
     ribbon: RibbonGeometry = field(default_factory=RibbonGeometry)
     pack: PackHardware = field(default_factory=PackHardware)
@@ -174,7 +184,7 @@ class ModuleStudy:
                 cooling = SideRibbon(
                     coolant=coolant, tim=self.tim, contact_fraction=self.contact_fraction, tube=self.ribbon
                 )
-        return Module(layout, d.filler, cooling)
+        return Module(layout, d.filler, cooling, self.wall)
 
 
 def _base(study: ModuleStudy) -> Params:
@@ -219,14 +229,21 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
     vol_over_pct = 100.0 * (pitch_area / (math.pi * cell.radius**2) - 1.0)
 
     T_limit = req.T_limit(study.cell, duty.is_charge)
-    T_peak = r.T_peak_C
+    T_interior = r.T_peak_C
     dT = r.dT_cell_max
-    if inlet and d.topology != "none":
-        ri = simulate_module(cell, module, duty.profile(cell), event, req.T_env_C, position="inlet", **kw)
-        T_peak_inlet = ri.T_peak_C
-    else:
-        T_peak_inlet = T_peak if d.topology == "none" else np.nan
-    c2c = T_peak - T_peak_inlet
+    sim = lambda pos, edge: simulate_module(
+        cell, module, duty.profile(cell), event, req.T_env_C, position=pos, edge=edge, **kw
+    )
+    flows = d.topology != "none"  # without a coolant, inlet and outlet cells are the same
+    T_peak_inlet = (sim("inlet", False).T_peak_C if flows else T_interior) if inlet else np.nan
+    T_edge_out = T_edge_in = np.nan
+    if study.edge_cells:
+        re = sim("outlet", True)
+        T_edge_out, dT = re.T_peak_C, max(dT, re.dT_cell_max)
+        if inlet:
+            T_edge_in = sim("inlet", True).T_peak_C if flows else T_edge_out
+    T_peak = float(np.nanmax([T_interior, T_edge_out]))
+    c2c = T_peak - float(np.nanmin([T_peak_inlet, T_edge_in])) if inlet else np.nan
     c2c_lim = study.cell_to_cell_max_K
     c2c_ok = c2c_lim is None or not np.isfinite(c2c) or c2c <= c2c_lim
 
@@ -264,7 +281,11 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
         "gap_mm": d.gap_mm,
         "R0_mOhm": cell.R0_25C * 1e3,
         "T_peak_C": T_peak,
+        "T_peak_interior_C": T_interior,
         "T_peak_inlet_C": T_peak_inlet,
+        "T_peak_edge_outlet_C": T_edge_out,
+        "T_peak_edge_inlet_C": T_edge_in,
+        "hottest_cell": "edge" if np.isfinite(T_edge_out) and T_edge_out > T_interior else "interior",
         "cell_to_cell_K": c2c,
         "cell_to_cell_limit_K": np.inf if c2c_lim is None else c2c_lim,
         "dT_cell_C": dT,
@@ -326,7 +347,7 @@ class ModuleStudyResult(StudyResult):
     def footnote(self) -> str:
         s = self.study
         return (
-            f"Scored on the coolant-outlet cell, {s.packing} packing. Picks re-checked at worst-case "
+            f"Scored on the hottest cell ({'interior and edge' if s.edge_cells else 'interior'}), {s.packing} packing. Picks re-checked at worst-case "
             f"R0 = {s.R0_worst * 1e3:.0f} mΩ. Fan/pump power from flow and pressure drop; {self._chiller_text()}."
         )
 
