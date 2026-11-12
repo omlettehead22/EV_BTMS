@@ -16,12 +16,16 @@ from packtherm.module import (
     Interface,
     Layout,
     Module,
+    RibbonGeometry,
     SideRibbon,
     module_mass_per_cell_kg,
     pcm_volume_fraction,
     simulate_module,
 )
 from packtherm.params import KELVIN
+
+# Room for the default ribbon (2.5 mm tube + two 0.5 mm bonds).
+RIBBON_GAP = Layout("hex", 3.5)
 
 # Constant heat: flat resistance, no entropic term -> Q = I^2 R exactly.
 FLAT = replace(LG_M50, Ea_R=0.0, soc_factor=lambda soc: 1.0)
@@ -73,14 +77,21 @@ def test_air_flow_sets_h_and_fan_power():
 def test_ribbon_needs_room():
     with pytest.raises(ValueError):
         Module(Layout("hex", 1.0), None, SideRibbon())
-    Module(Layout("hex", 1.0), None, SideRibbon(min_gap_mm=0.8))
+    thin = SideRibbon(tube=RibbonGeometry(thickness_mm=1.0, wall_mm=0.2), tim=Interface(0.1, 2.0))
+    assert thin.min_gap_mm == pytest.approx(1.2)
+    Module(Layout("hex", 1.2), None, thin)
+    assert SideRibbon().min_gap_mm == pytest.approx(2.5 + 2 * 0.5)
 
 
 def test_chiller_energy_counts_heat_to_cold_coolant():
     prof = constant_current(LG_M50, 1.0)
-    warm = simulate_module(LG_M50, Module(filler=None, cooling=SideRibbon()), prof, 1800, 25.0)
+    warm = simulate_module(LG_M50, Module(layout=RIBBON_GAP, filler=None, cooling=SideRibbon()), prof, 1800, 25.0)
     cold = simulate_module(
-        LG_M50, Module(filler=None, cooling=SideRibbon(coolant=Coolant(inlet_C=15.0))), prof, 1800, 25.0
+        LG_M50,
+        Module(layout=RIBBON_GAP, filler=None, cooling=SideRibbon(coolant=Coolant(inlet_C=15.0))),
+        prof,
+        1800,
+        25.0,
     )
     assert warm.chiller_energy_Wh(3.0) == 0.0
     expected = np.sum(np.clip(cold.Q_coolant, 0, None) * np.diff(cold.res.t, prepend=0.0)) / 3.0 / 3600
@@ -142,7 +153,7 @@ def test_bottom_plate_steady_state_matches_analytic():
 def test_outlet_coolant_rise_balances_heat():
     """At quasi-steady state the outlet coolant has risen by Q / (m cp)."""
     c = Coolant()
-    r = steady(Module(filler=None, cooling=SideRibbon(coolant=c)), position="outlet")
+    r = steady(Module(layout=RIBBON_GAP, filler=None, cooling=SideRibbon(coolant=c)), position="outlet")
     i = np.searchsorted(r.res.t, 50 * 60)
     assert r.Q_coolant[i] == pytest.approx(Q, rel=0.01)
     # Coolant temperature is set from the start-of-step state: ppm-level lag.
@@ -172,7 +183,9 @@ def test_inlet_cell_is_cooler_than_outlet():
 def test_strong_contact_and_weak_flow_stay_stable():
     """Contact conductance >> coolant capacity flow must not oscillate."""
     c = Coolant(flow_g_s_per_cell=0.002)
-    m = Module(filler=None, cooling=SideRibbon(coolant=c, contact_fraction=1.0, tim=Interface(0.05, 5.0)))
+    m = Module(
+        layout=RIBBON_GAP, filler=None, cooling=SideRibbon(coolant=c, contact_fraction=1.0, tim=Interface(0.05, 5.0))
+    )
     r = simulate_module(LG_M50, m, constant_current(LG_M50, 1.5), 1800, 25.0)
     assert np.all(np.isfinite(r.res.T_max)) and r.res.T_max.max() < 400
     assert r.res.balance_error_pct < 1e-6
@@ -181,7 +194,9 @@ def test_strong_contact_and_weak_flow_stay_stable():
 
 def test_side_ribbon_beats_bottom_plate_for_tall_cells():
     prof = constant_current(LG_M50, 1.5)
-    rib = simulate_module(LG_M50, Module(filler=None, cooling=SideRibbon()), prof, 2400, 25.0, position="inlet")
+    rib = simulate_module(
+        LG_M50, Module(layout=RIBBON_GAP, filler=None, cooling=SideRibbon()), prof, 2400, 25.0, position="inlet"
+    )
     bot = simulate_module(LG_M50, Module(filler=None, cooling=BottomPlate()), prof, 2400, 25.0, position="inlet")
     assert rib.T_peak_C < bot.T_peak_C
     assert rib.dT_cell_max < bot.dT_cell_max

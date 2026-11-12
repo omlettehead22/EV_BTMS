@@ -35,7 +35,7 @@ A review of the model and advisor as of v0.3.1, ranked by how much each item cou
 - Coolant reference flow (0.05 g/s per cell), h_ref (1500 W/m²K), Δp_ref (20 kPa), pump efficiency (0.5) and air flow/Δp are typical values, not a specific pack.
 - The side ribbon is applied at the can surface with a uniform contact fraction. In reality the contact is a strip, so the can gets a circumferential gradient.
 
-- **Cooling hardware mass (0.5 kg/kWh air, 1.0 kg/kWh liquid, +0.3 chiller) now decides the module picks**, because physical pump energy is tiny. These are rough pack-level figures; per-topology mass from geometry (plate thickness, ribbon tube, manifolds) is the next fidelity step.
+- ~~Flat cooling hardware mass~~ **Done in v0.4.3:** mass from geometry with sourced dimensions. **Still open:** pack-level parts (liquid loop 3 kg, air system 4 kg, chiller 4 kg) are assumptions; cell holders and module structure are not charged to any option; the ribbon contact is still uniform around the bonded share of the can.
 - The module unit cell is adiabatic at its edge, so ambient heat leaking into a chilled module is not counted; chiller energy is a lower bound.
 - Recovery for chilled designs is immediate (the cell is already below ambient + 1 K), so chiller energy after the event is not counted.
 

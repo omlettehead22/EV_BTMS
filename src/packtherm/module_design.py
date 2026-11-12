@@ -15,12 +15,12 @@ Design variables
 * coolant inlet: ambient (radiator) or a chiller set-point below ambient
 * filler between the cans: none, a PCM grade or a PCM/expanded-graphite
   composite (``-EG``)
-* gap between cans
+* gap between cans (a side ribbon widens it to fit the tube and its bonds)
 
 Costs, per cell:
 
-* **mass overhead**: filler + cooling hardware (kg per kWh of cells, as in
-  :data:`packtherm.design.HARDWARE_KG_PER_KWH`) as % of cell mass
+* **mass overhead**: filler + cooling hardware built up from geometry
+  (:mod:`packtherm.hardware`) as % of cell mass
 * **auxiliary energy**: fan or pump electricity computed from flow and
   pressure drop, plus chiller electricity (heat taken by sub-ambient coolant /
   COP), until the cell is ready again, as % of the energy the cell moves
@@ -44,7 +44,6 @@ import pandas as pd
 from .cells import Cell
 from .design import (
     DEFAULT_CHILLER_COP,
-    HARDWARE_KG_PER_KWH,
     DutyCycle,
     Requirements,
     StudyResult,
@@ -52,6 +51,7 @@ from .design import (
     select_front,
 )
 from .electrothermal import check_limits
+from .hardware import PackHardware, hardware_mass_per_cell
 from .materials import get_pcm, melt_midpoint_C
 from .module import (
     AirFlow,
@@ -60,6 +60,8 @@ from .module import (
     Interface,
     Layout,
     Module,
+    PlateGeometry,
+    RibbonGeometry,
     SideRibbon,
     module_mass_per_cell_kg,
     simulate_module,
@@ -84,15 +86,17 @@ class ModuleDesign:
     def chilled(self) -> bool:
         return self.inlet_C is not None
 
-    def cooling_label(self) -> str:
+    def cooling_label(self, show_gap: bool = False) -> str:
+        """Row label: cooling, plus the gap when it varies (rows keep fillers aligned)."""
         if self.topology == "none":
-            return "sealed (no cooling)"
-        s = f"{self.topology} {self.flow_g_s:g} g/s"
-        return s + (f", chiller {self.inlet_C:g} °C" if self.chilled else "")
-
-    def filler_label(self, show_gap: bool) -> str:
-        s = self.filler or "no filler"
+            s = "sealed (no cooling)"
+        else:
+            s = f"{self.topology} {self.flow_g_s:g} g/s"
+            s += f", chiller {self.inlet_C:g} °C" if self.chilled else ""
         return s + (f", {self.gap_mm:g} mm gap" if show_gap else "")
+
+    def filler_label(self) -> str:
+        return self.filler or "no filler"
 
 
 @dataclass(frozen=True)
@@ -114,15 +118,9 @@ class ModuleStudy:
     contact_fraction: float = 0.25
     # Inlet-to-outlet peak difference; None = report only.
     cell_to_cell_max_K: float | None = None
-    hardware_kg_per_kWh: dict = field(
-        default_factory=lambda: {
-            "none": 0.0,
-            "air": HARDWARE_KG_PER_KWH["air"],
-            "bottom": HARDWARE_KG_PER_KWH["liquid"],
-            "ribbon": HARDWARE_KG_PER_KWH["liquid"],
-            "chiller": HARDWARE_KG_PER_KWH["chiller"],
-        }
-    )
+    plate: PlateGeometry = field(default_factory=PlateGeometry)
+    ribbon: RibbonGeometry = field(default_factory=RibbonGeometry)
+    pack: PackHardware = field(default_factory=PackHardware)
     chiller_cop: float = DEFAULT_CHILLER_COP
     resistance_margin: float = 0.2
     dt: float = 2.0
@@ -134,7 +132,7 @@ class ModuleStudy:
     def designs(self) -> list[ModuleDesign]:
         out: list[ModuleDesign] = []
         inlets = [None] + [c for c in self.chiller_inlets_C if c < self.requirements.T_env_C]
-        ribbon_gap = SideRibbon().min_gap_mm
+        ribbon_gap = SideRibbon(tim=self.tim, tube=self.ribbon).min_gap_mm
         for gap in self.gaps_mm:
             for topo in self.topologies:
                 if topo == "none":
@@ -143,10 +141,10 @@ class ModuleStudy:
                     # Air needs open gaps: no filler.
                     out += [ModuleDesign("air", q, None, None, gap) for q in self.air_flows_g_s]
                 elif topo in ("bottom", "ribbon"):
-                    if topo == "ribbon" and gap < ribbon_gap:
-                        continue
+                    # The ribbon needs room between the cans: widen the gap to fit it.
+                    g = max(gap, ribbon_gap) if topo == "ribbon" else gap
                     out += [
-                        ModuleDesign(topo, q, t, f, gap)
+                        ModuleDesign(topo, q, t, f, g)
                         for q in self.coolant_flows_g_s
                         for t in inlets
                         for f in self.fillers
@@ -156,7 +154,10 @@ class ModuleStudy:
         return out
 
     def module(self, d: ModuleDesign) -> Module:
-        layout = Layout(self.packing, d.gap_mm)
+        gap = d.gap_mm
+        if d.topology == "ribbon":
+            gap = max(gap, SideRibbon(tim=self.tim, tube=self.ribbon).min_gap_mm)
+        layout = Layout(self.packing, gap)
         if d.topology == "none":
             cooling = None
         elif d.topology == "air":
@@ -164,9 +165,11 @@ class ModuleStudy:
         else:
             coolant = replace(self.coolant, flow_g_s_per_cell=d.flow_g_s, inlet_C=d.inlet_C)
             if d.topology == "bottom":
-                cooling = BottomPlate(coolant=coolant, tim=self.tim)
+                cooling = BottomPlate(coolant=coolant, tim=self.tim, plate=self.plate)
             else:
-                cooling = SideRibbon(coolant=coolant, tim=self.tim, contact_fraction=self.contact_fraction)
+                cooling = SideRibbon(
+                    coolant=coolant, tim=self.tim, contact_fraction=self.contact_fraction, tube=self.ribbon
+                )
         return Module(layout, d.filler, cooling)
 
 
@@ -203,9 +206,8 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
     chiller_Wh = r.chiller_energy_Wh(study.chiller_cop, until_s=t_ready)
     aux_Wh = fan_pump_Wh + chiller_Wh
 
-    cell_kWh = cell.capacity_Ah * cell.V_nominal / 1e3
-    hw = study.hardware_kg_per_kWh
-    m_hw = (hw.get(d.topology, 0.0) + (hw.get("chiller", 0.0) if d.chilled else 0.0)) * cell_kWh
+    hw = hardware_mass_per_cell(cell, module, study.pack, chilled=d.chilled)
+    m_hw = hw["total"]
     m_fill = module_mass_per_cell_kg(cell, module)
     m_over = m_hw + m_fill
     pitch_area = module.layout.area_per_cell(cell)
@@ -236,9 +238,9 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
         ("spread", not c2c_ok),
     )
     rating = [w for w in check_limits(cell, r.load, res) if "rating" in w]
-    show_gap = len(study.gaps_mm) > 1
-    cooling = d.cooling_label()
-    filler = d.filler_label(show_gap)
+    show_gap = len(study.gaps_mm) > 1 or d.gap_mm not in study.gaps_mm
+    cooling = d.cooling_label(show_gap)
+    filler = d.filler_label()
     coolant_max = float(r.T_coolant.max() - KELVIN) if r.T_coolant is not None else req.T_env_C
     return {
         "design": f"{cooling}, {filler}",
@@ -272,6 +274,10 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
         "aux_energy_pct": 100.0 * aux_Wh / throughput_Wh if throughput_Wh > 0 else np.nan,
         "mass_filler_g": 1e3 * m_fill,
         "mass_hardware_g": 1e3 * m_hw,
+        "mass_hw_aluminium_g": 1e3 * hw["aluminium"],
+        "mass_hw_coolant_g": 1e3 * hw["coolant"],
+        "mass_hw_interface_g": 1e3 * hw["interface"],
+        "mass_hw_pack_share_g": 1e3 * hw["pack_share"],
         "mass_overhead_g": 1e3 * m_over,
         "mass_overhead_pct": 100.0 * m_over / cell.mass,
         "volume_overhead_pct": vol_over_pct,

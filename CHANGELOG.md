@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.3
+- **Cooling hardware mass from geometry** (`packtherm.hardware`), replacing the flat kg per kWh in the module advisor:
+  - cold plate: base and channel sheets over the cell's footprint, coolant in the channels, gap filler under the cell (`PlateGeometry`);
+  - side ribbon: the cell's share of an extruded multi-port tube (walls and ribs), coolant inside, bond to the can (`RibbonGeometry`);
+  - pack-level parts per cell: liquid loop, air system, chiller (`PackHardware`, with `--pack-kwh`, `--liquid-loop-kg`, `--air-system-kg`, `--chiller-kg`);
+  - defaults sourced from supplier data (AMAG, Boyd, XD Thermal, Dow, Bostik); the rest labelled as assumptions;
+  - mass breakdown columns in the design CSV (`mass_hw_aluminium_g`, `_coolant_g`, `_interface_g`, `_pack_share_g`).
+- **Changed:** liquid hardware drops from 1.0 to about 0.3 kg/kWh and air from 0.5 to 0.07. M50 road trip at 35 °C: forced air +1.8 % mass (was +13 %), side ribbon +7.2 % (was +27 %). Same picks.
+- **Changed:** the side ribbon covers 75 % of the can height, and its contact conductance is scaled to match (it assumed full height).
+- **Changed:** the ribbon's minimum gap is the tube plus two bond lines (3.5 mm by default, was a flat 1.5 mm). The advisor and `packtherm module` widen the gap to fit, and the tube's volume is taken out of the filler.
+- `Interface.rho` (gap-filler density). Heatmap rows carry the gap when it varies, so filler columns stay aligned. Pick labels sit closer to their point.
+
 ## 0.4.2
 - **Renamed to PackTherm.** GitHub repo `EV_BTMS` → `PackTherm` (old links redirect), Python package `btms` → `packtherm` (`import packtherm`), command `btms` → `packtherm`. Entries below keep the old names.
 - **New model picture** (`docs/figures/model_overview.svg`, drawn by `make_model_diagram.py`): the module, one cell's share solved in 1D, and the design loop. Replaces the thesis cell–PCM–casing figure in the README.

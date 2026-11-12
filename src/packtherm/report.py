@@ -46,8 +46,8 @@ def _label_offset(ax, x, y, k: int) -> tuple[tuple[float, float], str, str]:
     dy = 22 + 40 * k
     left = fx > 0.4
     if fy < 0.3:
-        return ((-16, dy), "right", "bottom") if left else ((16, dy), "left", "bottom")
-    return ((-16, -dy), "right", "top") if left else ((16, -dy), "left", "top")
+        return ((-16, dy), "right", "bottom") if left else ((8, dy), "left", "bottom")
+    return ((-16, -dy), "right", "top") if left else ((6, -dy), "left", "top")
 
 
 def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
