@@ -9,7 +9,7 @@ A battery thermal management (BTMS) design tool for cylindrical-cell EV packs. I
 `packtherm design` now sweeps **module** designs by default: cooling topology (sealed, forced air, bottom plate, side ribbon) × flow per cell × chiller inlet × gap filler (none, PCM, composite PCM) × can-to-can gap. Each design is scored on the **coolant-outlet cell** (the hottest), with the inlet cell simulated too so the cell-to-cell spread can be limited (`--cell-to-cell-max`).
 
 - **Energy is physical now.** Fan and pump power come from flow and pressure drop, plus chiller electricity (heat taken by sub-ambient coolant ÷ COP). The old thesis anchors overstated liquid pumping about 200×.
-- **Mass** = filler + cooling hardware (kg per kWh of cells, overridable). The gap's volume cost is reported as `volume_overhead_pct`.
+- **Mass** = filler + cooling hardware built up from geometry (v0.4.3, below). The gap's volume cost is reported as `volume_overhead_pct`.
 - Front, worst-case-resistance re-check and picks are shared with the single-cell advisor, which stays available as `--level cell`.
 
 ```bash
@@ -22,15 +22,32 @@ packtherm design M50 --level cell --c-rate 1.5          # v0.3 isolated-cell adv
 
 | Pick | Design | Outlet-cell peak | Mass added | Aux energy |
 |---|---|---|---|---|
-| Lightest | forced air 0.15 g/s per cell | 40.5 °C | +13 % | 0.26 % |
-| Lowest energy / balanced | side ribbon 0.02 g/s per cell | 39.8 °C | +27 % | 0.001 % |
+| Lightest | forced air 0.15 g/s per cell | 40.5 °C | +1.8 % | 0.26 % |
+| Lowest energy / balanced | side ribbon 0.02 g/s per cell, 3.5 mm gap | 39.9 °C | +7.2 % | 0.001 % |
 
 **What it shows**
-- **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off becomes hardware mass (the 0.5 vs 1.0 kg/kWh assumption) against fan energy, so the hardware-mass assumption now decides the pick.
+- **Once pump energy is physical, liquid cooling costs almost nothing to run.** The trade-off is hardware mass against fan energy, so v0.4.3 builds the mass up from real dimensions.
 - **A PCM that melts below ambient is a liability.** At 35 °C, RT31 never re-solidifies and every RT31 design fails on recovery; RT42 still works.
 - **A chiller holds every cell at 35 °C** but costs 1–1.7 % of the energy moved, a thousand times the pump.
 
 ![Module trade-off](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png)
+
+### Cooling hardware from geometry (v0.4.3)
+
+Mass is built up from the parts, with every dimension a labelled, overridable default (`packtherm.module.PlateGeometry`, `RibbonGeometry`, `Interface`, `packtherm.hardware.PackHardware`):
+
+| Part | Default | Source |
+|---|---|---|
+| Cold plate | 1.5 mm base + 1.0 mm channel sheet, 4 mm channels over half the footprint | brazed plates: base 1.5–2.0 mm, channel sheet 0.8–1.2 mm (AMAG); channels 4–8 mm (Boyd) |
+| Side ribbon | 2.5 mm thick, 0.4 mm walls, 0.35 mm ribs every 2.5 mm, 75 % of the can height, one ribbon per two rows | 18650 ribbons: 2.2–3.2 mm thick, 48–50 mm tall, walls 0.25–0.8 mm, ribs 0.28–0.43 mm (XD Thermal) |
+| Gap filler / bond | 0.5 mm, 2 W/m·K, 2.0 g/cm³ | low-density 2 W/m·K EV gap fillers are 1.95–2.0 g/cm³ (Dow TC-5515 LT and others); 1.8–2.2 more widely (Bostik) |
+| Per pack | liquid loop 3 kg, air system 4 kg, chiller 4 kg | assumptions; compressor and radiator are shared with the car and not charged |
+
+For an M50 module this gives about **0.3 kg/kWh** for liquid cooling (cold plate 5.6 g per cell, ribbon 4.9 g) and **0.07 kg/kWh** for air, against the earlier flat 1.0 and 0.5. Whole cooling systems are quoted at 0.5–5 kg/kWh because they include the radiator, compressor and structure.
+
+Two consequences for the thermal model:
+- **The ribbon needs room.** The tube plus a bond on each side sets the minimum gap (3.5 mm by default); the advisor and `packtherm module` widen the gap to fit, and the tube's volume holds no filler.
+- **The ribbon covers 75 % of the can height**, so its contact conductance is now scaled by that share (it used to assume full height).
 
 ## Module level (v0.4)
 
@@ -62,19 +79,19 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 | forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
 | bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 1.9 mW |
 | bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 1.9 mW |
-| side ribbon | air | **29.8 °C** | 39.6 °C | 9.8 K | 1.8 K | 1.9 mW |
-| side ribbon | RT31 | 29.8 °C | **36.1 °C** | 6.3 K | 2.1 K | 1.9 mW |
+| side ribbon (3.5 mm gap) | air | **30.5 °C** | 40.0 °C | 9.5 K | 1.8 K | 1.9 mW |
+| side ribbon (3.5 mm gap) | RT31 | 30.4 °C | **35.6 °C** | 5.2 K | 2.2 K | 1.9 mW |
 
 **What it shows**
 - **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet, and its in-cell ΔT is 1.8 K against 6.4 K (an upper-bound axial estimate). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
-- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by a third (9.8 → 6.3 K).
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet even over 75 % of the height, and its in-cell ΔT is 1.8 K against 6.4 K (an upper-bound axial estimate). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by almost half (9.5 → 5.2 K).
 - **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
 
 **Limits of the module model:**
 - The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
 - Coolant has no thermal mass, and cells at the edge of a module are not modelled.
-- Flow, Δp, h_ref, the thermal interface and the roll-end resistance are labelled assumptions in `module.py`.
+- Flow, Δp, h_ref, the thermal interface, the roll-end resistance and the hardware dimensions are labelled assumptions in `module.py` and `hardware.py`.
 
 ## Validated against measured temperatures (v0.3.2)
 
@@ -237,12 +254,15 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.3.2** ✅ | Validation against 49 measured tests (25 to −20 °C); equivalent-circuit electrical model with Butler–Volmer kinetics, voltage cut-off and CC-CV charging; validated Panasonic NCR18650PF cell |
 | **v0.4** ✅ | Module level: packed unit cell (hex/square), air / PCM / composite-PCM filler, forced air, bottom plate, side ribbon, coolant rise with inlet/outlet cells, pump and fan power from flow |
 | **v0.4.1** ✅ | Design advisor on the module model: flow, topology, filler, gap as design variables with physical pump/fan energy |
+| **v0.4.2** ✅ | Rename to PackTherm, new model picture, housekeeping |
+| **v0.4.3** ✅ | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
+| v0.4.x | Further accuracy updates (chiller accounting, pack plumbing, edge cells, coolant thermal mass) |
 | v0.5 | Web app and API |
 
 ## Repository layout
 
 ```
-src/packtherm/        Python package (params, model, cells, materials, ecm, electrothermal, module, module_design, ev, design, report, validation, scenarios, metrics, cli)
+src/packtherm/        Python package (params, model, cells, materials, ecm, electrothermal, module, module_design, hardware, ev, design, report, validation, scenarios, metrics, cli)
 src/packtherm/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
 validation/      dataset preparation, model identification and validation scripts + processed test data
 docs/VALIDATION.md  validation method and results

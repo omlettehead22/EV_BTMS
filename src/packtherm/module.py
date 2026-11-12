@@ -129,10 +129,13 @@ class Interface:
     """Thermal interface material: R = bond-line thickness / k.
 
     ASSUMPTION: 0.5 mm of 2 W/mK gap filler (EV gap fillers reach ~3.5 W/mK).
+    Density 2.0 g/cm^3: low-density 2 W/mK EV gap fillers are 1.95-2.0
+    (Dow TC-5515 LT; a 1K EV gap filler), the wider range 1.8-2.2 (Bostik).
     """
 
     bond_line_mm: float = 0.5
     k: float = 2.0
+    rho: float = 2000.0  # kg/m^3
 
     @property
     def R(self) -> float:  # m^2 K / W
@@ -189,12 +192,56 @@ class AirFlow:
 
 
 @dataclass(frozen=True)
+class PlateGeometry:
+    """Brazed aluminium cold plate under the cells.
+
+    Sources: brazed battery plates are a flat base sheet of 1.5-2.0 mm and a
+    formed channel sheet of 0.8-1.2 mm (AMAG); channel heights of 4-8 mm are
+    typical (Boyd). ASSUMPTIONS: channels cover half the footprint; forming
+    adds 10 % to the channel-sheet area.
+    """
+
+    base_mm: float = 1.5
+    channel_sheet_mm: float = 1.0
+    channel_height_mm: float = 4.0
+    channel_coverage: float = 0.5
+    forming_factor: float = 1.1
+
+
+@dataclass(frozen=True)
+class RibbonGeometry:
+    """Extruded multi-port aluminium tube bonded along the cans.
+
+    Sources: ribbons for 18650 cells are 2.2-3.2 mm thick and 48-50 mm tall
+    (about 75 % of the 65 mm can) with 0.25-0.8 mm walls and 0.28-0.43 mm
+    internal ribs (XD Thermal); micro-port walls are typically 0.3-0.6 mm.
+    ASSUMPTIONS: one ribbon serves two rows of cells; weaving between the cans
+    makes it 10 % longer than the row; one internal rib per 2.5 mm of height.
+    """
+
+    thickness_mm: float = 2.5
+    wall_mm: float = 0.4
+    rib_mm: float = 0.35
+    rib_pitch_mm: float = 2.5
+    height_fraction: float = 0.75  # share of the can height the ribbon covers
+    rows_per_ribbon: int = 2
+    weave_factor: float = 1.1
+
+    def __post_init__(self) -> None:
+        if not 0 < self.height_fraction <= 1:
+            raise ValueError("height_fraction must be in (0, 1].")
+        if self.thickness_mm <= 2 * self.wall_mm:
+            raise ValueError("Ribbon thickness must exceed two walls.")
+
+
+@dataclass(frozen=True)
 class BottomPlate:
     coolant: Coolant = field(default_factory=Coolant)
     tim: Interface = field(default_factory=Interface)
     # ASSUMPTION: roll-to-can-bottom resistance (insulating end disc, single
     # tab): ~0.1 mm of polymer. The largest uncertainty in bottom cooling.
     R_end: float = 5e-4  # m^2 K / W
+    plate: PlateGeometry = field(default_factory=PlateGeometry)
     name: str = "bottom plate"
 
 
@@ -204,9 +251,13 @@ class SideRibbon:
     tim: Interface = field(default_factory=Interface)
     # ASSUMPTION: share of the can circumference bonded to the ribbon.
     contact_fraction: float = 0.25
-    # ASSUMPTION: the ribbon tube must fit between neighbouring cans.
-    min_gap_mm: float = 1.5
+    tube: RibbonGeometry = field(default_factory=RibbonGeometry)
     name: str = "side ribbon"
+
+    @property
+    def min_gap_mm(self) -> float:
+        """The tube plus a bond line on each side must fit between the cans."""
+        return self.tube.thickness_mm + 2.0 * self.tim.bond_line_mm
 
 
 Cooling = AirFlow | BottomPlate | SideRibbon | None
@@ -369,10 +420,11 @@ def simulate_module(
             sinks.append(Sink(G_bottom, T_sink, "coolant"))
         else:
 
-            def G_ribbon(grid, params, f=cooling.contact_fraction, R_path=R_path):
+            def G_ribbon(grid, params, f=cooling.contact_fraction, hf=cooling.tube.height_fraction, R_path=R_path):
                 G = np.zeros(grid.r.size)
                 i = int(np.flatnonzero(grid.region == CELL)[-1])
-                G[i] = f * 2.0 * math.pi * cell.radius * L / R_path
+                # Bonded area: a share of the circumference over the ribbon's height.
+                G[i] = f * 2.0 * math.pi * cell.radius * hf * L / R_path
                 return G
 
             sinks.append(Sink(G_ribbon, T_sink, "coolant"))
@@ -403,11 +455,29 @@ def simulate_module(
 
 
 def module_mass_per_cell_kg(cell: Cell, module: Module) -> float:
-    """Filler mass per cell (gap volume x density); cooling hardware excluded."""
+    """Filler mass per cell (gap volume x density); cooling hardware excluded.
+
+    A side ribbon and its bonds sit in the gap, so their volume holds no filler.
+    """
     if module.filler is None:
         return 0.0
     vol = (module.layout.area_per_cell(cell) - math.pi * cell.radius**2) * cell.height
-    return get_pcm(module.filler).rho * vol
+    c = module.cooling
+    if isinstance(c, SideRibbon):
+        g = c.tube
+        length = module.layout.pitch(cell) * g.weave_factor / g.rows_per_ribbon
+        vol -= g.thickness_mm * 1e-3 * g.height_fraction * cell.height * length
+        vol -= (
+            c.contact_fraction
+            * 2.0
+            * math.pi
+            * cell.radius
+            * g.height_fraction
+            * cell.height
+            * c.tim.bond_line_mm
+            * 1e-3
+        )
+    return get_pcm(module.filler).rho * max(vol, 0.0)
 
 
 def pcm_volume_fraction(cell: Cell, module: Module) -> float:
@@ -423,6 +493,8 @@ __all__ = [
     "Layout",
     "Module",
     "ModuleResult",
+    "PlateGeometry",
+    "RibbonGeometry",
     "SideRibbon",
     "module_mass_per_cell_kg",
     "module_params",

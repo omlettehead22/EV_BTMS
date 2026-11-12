@@ -125,10 +125,15 @@ def _design(args) -> None:
         T_max_C=args.t_max, dT_cell_max_C=args.dt_max, T_env_C=args.t_env, recovery_max_min=args.recovery_max_min
     )
     if args.level == "module":
+        from .hardware import PackHardware
         from .module_design import ModuleStudy, run_module_study
 
-        hw = {"none": 0.0, "air": args.air_kg_per_kwh, "bottom": args.liquid_kg_per_kwh}
-        hw |= {"ribbon": args.liquid_kg_per_kwh, "chiller": 0.3}
+        pack = PackHardware(
+            pack_kWh=args.pack_kwh,
+            liquid_loop_kg=args.liquid_loop_kg,
+            air_system_kg=args.air_system_kg,
+            chiller_kg=args.chiller_kg,
+        )
         study = ModuleStudy(
             cell,
             duty,
@@ -141,7 +146,7 @@ def _design(args) -> None:
             gaps_mm=tuple(args.gaps),
             packing=args.packing,
             cell_to_cell_max_K=args.cell_to_cell_max,
-            hardware_kg_per_kWh=hw,
+            pack=pack,
             chiller_cop=args.cop,
             resistance_margin=args.r_margin,
         )
@@ -210,6 +215,18 @@ def _build_duty(args, cell):
     return road_trip_duty(cell, pack, Vehicle(), speed_kmh=args.speed, charge_c_rate=args.charge_c, rest_after_s=rest)
 
 
+def _fit(layout, filler, cooling):
+    """A module, with the gap widened if a side ribbon needs more room."""
+    from dataclasses import replace
+
+    from .module import Module, SideRibbon
+
+    if isinstance(cooling, SideRibbon) and layout.gap_mm < cooling.min_gap_mm:
+        print(f"Note: gap widened to {cooling.min_gap_mm:g} mm to fit the side ribbon and its bonds.")
+        layout = replace(layout, gap_mm=cooling.min_gap_mm)
+    return Module(layout, filler, cooling)
+
+
 def _module(args) -> None:
     import pandas as pd
 
@@ -233,10 +250,10 @@ def _module(args) -> None:
         modules = [Module(layout, None, None), Module(layout, None, AirFlow(flow_g_s_per_cell=args.air_flow))]
         for kind in ("bottom", "ribbon"):
             for filler in (None, *args.fillers):
-                modules.append(Module(layout, filler, cooling_for(kind)))
+                modules.append(_fit(layout, filler, cooling_for(kind)))
     else:
         filler = None if args.filler in (None, "air", "none") else args.filler
-        modules = [Module(layout, filler, cooling_for(args.cooling))]
+        modules = [_fit(layout, filler, cooling_for(args.cooling))]
     print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {args.gap:g} mm gap")
     rows = compare_modules(cell, modules, duty, args.t_env)
     df = pd.DataFrame(rows)
@@ -334,8 +351,11 @@ def main(argv: list[str] | None = None) -> None:
     v.add_argument("--case-mm", type=float, default=1.0)
     a = d.add_argument_group("assumptions")
     a.add_argument("--cells-in-pack", type=int, default=100, help="Cells sharing the anchor fan/pump power.")
-    a.add_argument("--air-kg-per-kwh", type=float, default=0.5)
-    a.add_argument("--liquid-kg-per-kwh", type=float, default=1.0)
+    a.add_argument("--air-kg-per-kwh", type=float, default=0.5, help="--level cell only.")
+    a.add_argument("--liquid-kg-per-kwh", type=float, default=1.0, help="--level cell only.")
+    a.add_argument("--liquid-loop-kg", type=float, default=3.0, help="module: pump, manifolds, hoses per pack.")
+    a.add_argument("--air-system-kg", type=float, default=4.0, help="module: fan, plenum, ducts per pack.")
+    a.add_argument("--chiller-kg", type=float, default=4.0, help="module: chiller, valve, lines per pack.")
     a.add_argument("--cop", type=float, default=3.0, help="Chiller COP.")
     a.add_argument("--r-margin", type=float, default=0.2, help="Worst-case resistance margin over the published max.")
     d.add_argument("--workers", type=int)
