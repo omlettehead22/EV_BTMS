@@ -354,10 +354,10 @@ class ModuleStudyResult(StudyResult):
     def notes(self) -> list[str]:
         t = self.table
         out = []
-        if (t.topology == "bottom").any():
+        if (t.topology == "bottom").any() and (t.chilled & (t.topology == "bottom")).any():
             out.append(
-                "NOTE: bottom-plate peak and in-cell spread include an axial estimate (upper bound), "
-                "so bottom-plate results lean conservative."
+                "NOTE: bottom plates are solved in 2D (radius x height). A chiller pulling a hot-soaked pack down "
+                "through its base opens large top-to-bottom gradients while it does so."
             )
         liquid = t[t.cooling_kind == "liquid"]
         if len(liquid):

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8
+- **2D bottom-plate model** (`packtherm.model2d`): bottom plates are now solved on an axisymmetric radius × height grid (16 layers by default) with the winding's axial conductivity, the roll-end resistance, interface and coolant film at the base, an adiabatic top and, for edge cells, the module wall. Same enthalpy–Newton scheme as the radial model; the sparse factorisation is reused until a PCM node changes phase band, which makes it about 15× faster than refactorising every iteration. `simulate_module(..., nz=0)` keeps the v0.4.7 radial model with its quasi-steady axial estimate.
+- **Checked** against the exact steady solution for a base-cooled cell (top and top-to-base spread within 1 % and 3 % at 8 and 16 layers), with PCM filler and with the edge wall; energy balance closes to 1e-6 %.
+- **Effect:** at 1.5C the bottom-plate peaks fall 0.1–0.45 K and the in-cell spread 0.15–0.7 K (the estimate was conservative, as intended). New finding: a chiller pulling a hot-soaked pack down through its base opens top-to-bottom gradients of up to 6 K while it does so, so three chilled bottom-plate designs now fail the 5 K in-cell limit on the 35 °C road trip. Studies with bottom plates take about twice as long.
+
 ## 0.4.7
 - **Coolant thermal mass:** the coolant held in each cell's share of the channel (`module.coolant_holdup_kg`, from the v0.4.3 plate and ribbon geometry, about 1 g per M50 cell) stores heat. Energy balance M·cp·dTc/dt = (ṁ·cp/frac)(T_in − Tc) + ΣG(T − Tc), solved implicitly each step, so the outlet coolant lags heat input by about M/ṁ (about 20 s at the reference flow). `simulate_module(..., coolant_mass=False)` restores the steady balance. The hardware mass model now uses the same holdup function.
 - **Effect:** peaks on the long M50 duties move by under 0.1 K and recovery by about a minute; the term matters for short pulses and start-up.
