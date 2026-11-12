@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.11
+- **LG M50 equivalent circuit** (`cells.LG_M50_ECM`, now on `LG_M50`): derived, not measured. PyBaMM's DFN with the ORegan2022 parameter set (measured on the LG M50T, with temperature dependence) was run through synthetic HPPC tests at 25, 10, 0 and −10 °C, and the PF cell's circuit fitted to them (`validation/derive_m50_ecm.py`). OCV table `data/lgm50_oregan2022_ocv.csv`.
+  - Pulse overpotential within 3.6–4.7 % (median) at every temperature; replay within 21–23 mV above 10 % SOC.
+  - Irreversible heat within 0.94–1.13× of the DFN on 0.5–1.4C discharges and a pulsed profile at 0–25 °C; the lumped model it replaces was 0.92–1.42× (over-predicting pulsed loads by 24–42 %).
+  - The M50 now stops at its voltage cut-off. The knee comes late in the cold (up to 0.75 Ah after the DFN at 0 °C 1.4C); the lumped model had no cut-off.
+  - `LG_M50_LUMPED` (CLI key `M50-LUMPED`) keeps the previous model.
+- **Fixed:** the worst-case resistance re-check only scaled the lumped R0, so for equivalent-circuit cells (the PF, now the M50) it did nothing. `cells.with_R0` now scales R0, the slow branch and the charge-transfer term together.
+- **Effect:** same picks; M50 road-trip peaks 0.5–0.9 K lower.
+
 ## 0.4.10
 - **Cold-weather cell model** (Panasonic NCR18650PF): two temperature laws identified from the 0.9 A discharge-and-rest steps between the HPPC pulse sets at 25, 10, 0 and −10 °C (identification data, not in the validation set; `identify_panasonic.cold_laws`):
   - the low-SOC rise grows in the cold (`ECM.Ea_soc`, 20.7 kJ/mol), so the voltage knee arrives earlier: the cold capacity loss;

@@ -46,7 +46,7 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from .cells import Cell
+from .cells import Cell, with_R0
 from .design import (
     DutyCycle,
     Requirements,
@@ -194,7 +194,7 @@ def _base(study: ModuleStudy) -> Params:
 
 def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None = None, inlet: bool = True) -> dict:
     """Simulate the outlet cell (and the inlet cell if ``inlet``) of one design."""
-    cell = study.cell if R0 is None else replace(study.cell, R0_25C=R0)
+    cell = study.cell if R0 is None else with_R0(study.cell, R0)
     duty, req = study.duty, study.requirements
     T_amb = req.T_env_C + KELVIN
     module = study.module(d)

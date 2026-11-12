@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from packtherm.cells import LG_M50, PANASONIC_NCR18650PF
+from packtherm.cells import LG_M50, LG_M50_LUMPED, PANASONIC_NCR18650PF
 from packtherm.ecm import ECM, ECMState
 from packtherm.electrothermal import ElectroThermalLoad, MeasuredHeatLoad, constant_current, simulate_cell
 
@@ -94,9 +94,26 @@ def test_heat_is_current_times_overpotential():
 
 def test_legacy_cells_unchanged():
     """Cells without an ECM keep the lumped I^2 R path (no voltage)."""
-    assert LG_M50.ecm is None
-    _, load = simulate_cell(LG_M50, constant_current(LG_M50, 1.0), 60.0, h=30.0, T_env=T25)
+    assert LG_M50_LUMPED.ecm is None
+    _, load = simulate_cell(LG_M50_LUMPED, constant_current(LG_M50_LUMPED, 1.0), 60.0, h=30.0, T_env=T25)
     assert np.isnan(load.arrays()["V"]).all()
+
+
+def test_m50_circuit_and_worst_case_scaling():
+    """The M50 now has a derived circuit; worst-case scaling stresses every loss term."""
+    from packtherm.cells import with_R0
+
+    assert LG_M50.ecm is not None
+    _, load = simulate_cell(LG_M50, constant_current(LG_M50, 1.0), 600.0, h=30.0, T_env=T25)
+    V = load.arrays()["V"]
+    assert np.isfinite(V[1:]).all() and 3.3 < V[-1] < 4.2
+    worst = with_R0(LG_M50, LG_M50.R0_25C * 1.44)
+    assert worst.ecm.R0_25C == pytest.approx(1.44 * LG_M50.ecm.R0_25C)
+    assert worst.ecm.Rd_25C == pytest.approx(1.44 * LG_M50.ecm.Rd_25C)
+    assert worst.ecm.I0_25C == pytest.approx(LG_M50.ecm.I0_25C / 1.44)
+    r1, _ = simulate_cell(LG_M50, constant_current(LG_M50, 1.0), 1200.0, h=30.0, T_env=T25)
+    r2, _ = simulate_cell(worst, constant_current(worst, 1.0), 1200.0, h=30.0, T_env=T25)
+    assert r2.E_generated > 1.3 * r1.E_generated
 
 
 def test_measured_heat_load():
