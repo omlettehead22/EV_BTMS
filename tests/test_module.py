@@ -35,10 +35,10 @@ I = FLAT.current(1.0)
 Q = I**2 * FLAT.R0_25C  # 0.75 W
 
 
-def steady(module, position="inlet", hours=1.2):
+def steady(module, position="inlet", hours=1.2, **kw):
     prof = constant_current(FLAT, 1.0)
     return simulate_module(
-        FLAT, module, prof, hours * 3600, 25.0, position=position, soc0=1.0, soc_limits=(0.0, 1.0), entropic=False
+        FLAT, module, prof, hours * 3600, 25.0, position=position, soc0=1.0, soc_limits=(0.0, 1.0), entropic=False, **kw
     )
 
 
@@ -165,9 +165,9 @@ def test_uncooled_interior_cell_is_adiabatic():
 
 
 def test_bottom_plate_steady_state_matches_analytic():
-    """Uniform generation, inlet coolant: mean T - T_c = q (L^2/(3k) + L R_path)."""
+    """Radial model (nz=0), uniform generation, inlet coolant: mean T - T_c = q (L^2/(3k) + L R_path)."""
     plate = BottomPlate(coolant=Coolant(), tim=Interface(), R_end=5e-4)
-    r = steady(Module(filler=None, cooling=plate))
+    r = steady(Module(filler=None, cooling=plate), nz=0)
     L, k = FLAT.height, FLAT.k_axial
     R = plate.R_end + plate.tim.R + 1 / plate.coolant.h
     V_model = r.res.volume[r.res.region == 1].sum()
@@ -183,6 +183,29 @@ def test_bottom_plate_steady_state_matches_analytic():
     # heat reaching the coolant, which is a hair below generation at quasi-steady).
     assert r.dT_axial[i] == pytest.approx(Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k), rel=2e-3)
     assert r.dT_axial[i] <= Q / (math.pi * FLAT.radius**2 * L) * L * L / (2 * k)
+
+
+def test_bottom_plate_2d_matches_analytic():
+    """2D r-z model, no filler, uniform generation, cooled base, adiabatic top:
+    T(z) - T_c = q (L z - z^2/2)/k + q L R, so top - T_c = q (L^2/(2k) + L R)
+    and the in-cell spread top - base = q L^2 / (2k)."""
+    plate = BottomPlate(coolant=Coolant(), tim=Interface(), R_end=5e-4)
+    L, k = FLAT.height, FLAT.k_axial
+    R = plate.R_end + plate.tim.R + 1 / plate.coolant.h
+    for nz in (8, 16):
+        r = steady(Module(filler=None, cooling=plate), nz=nz)
+        i = np.searchsorted(r.res.t, 50 * 60)
+        q = r.res.heat_W[i] / (math.pi * FLAT.radius**2 * L)
+        # Node centres sit dz/2 inside the faces: compare with the analytic value there.
+        dz = L / nz
+        z_top = L - dz / 2
+        top = q * (L * z_top - z_top**2 / 2) / k + q * L * R
+        assert r.T_top[i] - (25.0 + KELVIN) == pytest.approx(top, rel=0.01)
+        z_bot = dz / 2
+        spread = q * ((L * z_top - z_top**2 / 2) - (L * z_bot - z_bot**2 / 2)) / k
+        # Radial spread is ~0 here (no side losses), so dT_cell is the axial spread.
+        assert r.res.dT_cell[i] == pytest.approx(spread, rel=0.03)
+        assert r.res.balance_error_pct < 1e-6
 
 
 def test_outlet_coolant_rise_balances_heat():
@@ -348,3 +371,15 @@ def test_coolant_mass_only_shifts_transients():
     assert with_mass.T_coolant[i] < without.T_coolant[i]  # still filling with warm coolant
     assert with_mass.T_peak_C == pytest.approx(without.T_peak_C, abs=0.2)
     assert with_mass.res.balance_error_pct < 1e-6
+
+
+def test_bottom_plate_2d_with_pcm_and_edge():
+    prof = constant_current(LG_M50, 1.5)
+    m = Module(Layout("hex", 2.0), "RT31", BottomPlate())
+    inner = simulate_module(LG_M50, m, prof, 1800, 25.0)
+    edge = simulate_module(LG_M50, m, prof, 1800, 25.0, edge=True)
+    for r in (inner, edge):
+        assert r.res.converged and r.res.balance_error_pct < 1e-6
+        assert r.res.pcm_fraction.max() > 0  # the PCM melts somewhere
+    assert edge.T_peak_C < inner.T_peak_C
+    assert edge.res.Q_sinks["wall"][-1] > 0

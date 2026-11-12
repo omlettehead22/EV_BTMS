@@ -78,19 +78,19 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 |---|---|---|---|---|---|---|
 | none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
 | forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.2 °C | 46.9 °C | 5.7 K | **6.4 K** | 7.9 mW |
-| bottom plate | RT42-EG | 40.0 °C | 42.2 °C | 2.2 K | 5.9 K | 7.9 mW |
+| bottom plate | air | 41.0 °C | 46.7 °C | 5.7 K | **5.9 K** | 7.9 mW |
+| bottom plate | RT42-EG | 39.0 °C | 41.7 °C | 2.8 K | 5.2 K | 7.9 mW |
 | side ribbon (3.5 mm gap) | air | **30.5 °C** | 40.0 °C | 9.5 K | 1.8 K | 7.9 mW |
 | side ribbon (3.5 mm gap) | RT31 | 30.4 °C | **35.6 °C** | 5.2 K | 2.2 K | 7.9 mW |
 
 **What it shows**
 - **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet even over 75 % of the height, and its in-cell ΔT is 1.8 K against 6.4 K (an upper-bound axial estimate). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 11 K at the inlet even over 75 % of the height, and its in-cell ΔT is 1.8 K against 5.9 K (2D radius × height model since v0.4.8). Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
 - **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by almost half (9.5 → 5.2 K).
 - **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
 
 **Limits of the module model:**
-- The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
+- Bottom plates are solved on a radius × height grid (v0.4.8); the ribbon is still radial-only with a uniform contact around its bonded share.
 - Coolant thermal mass (v0.4.7) is lumped per cell's share of the channel (about 20 s lag at the reference flow). Edge cells (v0.4.6) see the wall through a single assumed U-value.
 - Flow, Δp, h_ref, the thermal interface, the roll-end resistance and the hardware dimensions are labelled assumptions in `module.py` and `hardware.py`.
 
@@ -261,7 +261,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.5** ✅ | Whole-loop pump power and radiator fan energy |
 | **v0.4.6** ✅ | Edge cells on the module wall in the model and the advisor |
 | **v0.4.7** ✅ | Coolant thermal mass in the channel |
-| v0.4.x | Remaining accuracy items in [docs/BACKLOG.md](docs/BACKLOG.md) (2D bottom plate, ribbon strip contact, cell-model gaps) |
+| **v0.4.8** ✅ | 2D (radius × height) bottom-plate model |
+| v0.4.x | Remaining accuracy items in [docs/BACKLOG.md](docs/BACKLOG.md) (ribbon strip contact, cell-model gaps) |
 | v0.5 | Web app and API |
 
 ## Repository layout

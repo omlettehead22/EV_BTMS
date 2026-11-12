@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packtherm"
-version = "0.4.7"
+version = "0.4.8"
 description = "Battery thermal management (PCM + air/liquid cooling) design toolkit"
 readme = "README.md"
 requires-python = ">=3.10"

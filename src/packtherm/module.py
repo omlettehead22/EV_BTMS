@@ -528,6 +528,7 @@ def simulate_module(
     entropic: bool = True,
     edge: bool = False,
     coolant_mass: bool = True,
+    nz: int = 16,
 ) -> ModuleResult:
     """Simulate one cell of the module (the coolant-outlet cell by default).
 
@@ -535,6 +536,8 @@ def simulate_module(
     exchanges heat with ambient through ``module.wall``. ``coolant_mass``
     gives the liquid coolant its heat capacity (the coolant held in the cell's
     share of the channel); False reproduces the steady balance of v0.4.6.
+    Bottom plates are solved on a radius x height grid with ``nz`` layers
+    (``nz=0``: the v0.4.7 radial model with a quasi-steady axial estimate).
     """
     T_amb = T_ambient_C + KELVIN
     base = (base or Params()).with_(T_initial=T_amb)
@@ -595,6 +598,32 @@ def simulate_module(
 
         sinks.append(Sink(G_wall, T_amb, "wall"))
     load = ElectroThermalLoad(cell, profile, soc0=soc0, soc_limits=soc_limits, entropic=entropic)
+    if isinstance(cooling, BottomPlate) and nz > 0:
+        # Full radius x height field (v0.4.8): replaces the quasi-steady axial estimate.
+        from .model2d import Axial, simulate_2d
+
+        R_film = cooling.tim.R + 1.0 / cooling.coolant.h
+        axial = Axial(nz, cell.k_axial, cooling.R_end + R_film, R_film)
+        wall = None
+        if edge:
+            wall = (module.wall.fraction * 2.0 * math.pi * module.layout.unit_radius(cell), module.wall.U)
+        res, T_top = simulate_2d(P, axial, duration, load, T_sink, T_amb, wall)
+        T_coolant = res.T_sinks["coolant"].copy()
+        T_coolant[0] = T_coolant[1] if T_coolant.size > 1 else T_coolant[0]
+        dT_axial = np.zeros_like(res.t)  # dT_cell already spans radius and height
+        return ModuleResult(
+            cell,
+            module,
+            position,
+            res,
+            load,
+            T_amb,
+            T_coolant,
+            res.Q_sinks["coolant"],
+            res.T_max.copy(),
+            dT_axial,
+            edge,
+        )
     res = simulate(P, duration=duration, h=h_outer, T_env=T_amb, load=load, sinks=sinks)
 
     T_coolant = res.T_sinks.get("coolant") if sinks else None
