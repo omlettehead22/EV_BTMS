@@ -303,3 +303,48 @@ def test_edge_cell_of_chilled_module_runs_warm():
     interior = simulate_module(LG_M50, m, prof, 3600, 40.0, position="inlet")
     edge = simulate_module(LG_M50, m, prof, 3600, 40.0, position="inlet", edge=True)
     assert edge.res.T_max[-1] > interior.res.T_max[-1]
+
+
+def test_coolant_holdup_matches_hardware_mass():
+    from packtherm.hardware import hardware_mass_per_cell
+    from packtherm.module import coolant_holdup_kg
+
+    for m in (Module(Layout(), None, BottomPlate()), Module(RIBBON_GAP, None, SideRibbon())):
+        assert coolant_holdup_kg(LG_M50, m) == hardware_mass_per_cell(LG_M50, m)["coolant"] > 0
+    assert coolant_holdup_kg(LG_M50, Module(Layout(), None, AirFlow())) == 0.0
+
+
+def test_coolant_temperature_lags_by_holdup_over_flow():
+    """Fixed cell temperature, step on: Tc approaches the steady value with
+    the implicit-Euler recurrence of tau = M cp / (m cp + G)."""
+    from packtherm.module import _coolant_temperature
+
+    c, M, dt = Coolant(), 1.0e-3, 1.0
+    T = _coolant_temperature(300.0, c, "outlet", holdup_kg=M)
+    G, nodes = np.array([0.5]), np.array([320.0])
+    flow = c.mdot * c.cp
+    b = M * c.cp / dt
+    steady = (flow * 300.0 + 0.5 * 320.0) / (flow + 0.5)
+    Tc = T(0.0, nodes, G)
+    assert Tc == pytest.approx(steady)  # first call: no history, steady balance
+    T2 = _coolant_temperature(300.0, c, "outlet", holdup_kg=M)
+    T2(0.0, np.array([300.0]), G)  # coolant starts at the inlet temperature
+    prev = 300.0
+    for k in range(1, 200):
+        Tc = T2(k * dt, nodes, G)
+        assert Tc == pytest.approx((b * prev + flow * 300.0 + 0.5 * 320.0) / (b + flow + 0.5))
+        prev = Tc
+    assert Tc == pytest.approx(steady, rel=1e-6)
+    # The inlet never lags.
+    assert _coolant_temperature(300.0, c, "inlet", holdup_kg=M)(5.0, nodes, G) == 300.0
+
+
+def test_coolant_mass_only_shifts_transients():
+    prof = constant_current(LG_M50, 2.0)
+    m = Module(RIBBON_GAP, None, SideRibbon())
+    with_mass = simulate_module(LG_M50, m, prof, 1500, 25.0)
+    without = simulate_module(LG_M50, m, prof, 1500, 25.0, coolant_mass=False)
+    i = np.searchsorted(with_mass.res.t, 30.0)
+    assert with_mass.T_coolant[i] < without.T_coolant[i]  # still filling with warm coolant
+    assert with_mass.T_peak_C == pytest.approx(without.T_peak_C, abs=0.2)
+    assert with_mass.res.balance_error_pct < 1e-6

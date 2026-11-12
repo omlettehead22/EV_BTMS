@@ -31,6 +31,7 @@ A review of the model and advisor as of v0.3.1, ranked by how much each item cou
 7. ~~Fixed chiller COP, no heat leak~~ **Done in v0.4.4:** COP falls with ambient (Carnot share), heat leaking in from a hot day is charged, and the chiller runs during the event then hands back to the radiator. **Still open:** the Carnot share (0.42) and the 9 h pack time constant are single-source assumptions; the leak heat is charged to the chiller but does not warm the cells in the thermal model; chiller idle losses are not modelled.
 
 ## Module model assumptions to firm up
+- **Coolant thermal mass done in v0.4.7:** the coolant held in each cell's share of the channel (from the v0.4.3 geometry) stores heat, solved implicitly; `coolant_mass=False` restores the steady balance. It is a single lump per cell, not a transport delay along the channel, so a sharp step at the inlet arrives smeared rather than delayed.
 - Roll-end-to-can resistance (5e-4 m²K/W) dominates bottom cooling and is the least certain value. A teardown or bottom-cooling test would pin it down.
 - Coolant reference flow (0.05 g/s per cell), h_ref (1500 W/m²K), Δp_ref (20 kPa), pump efficiency (0.5) and air flow/Δp are typical values, not a specific pack.
 - The side ribbon is applied at the can surface with a uniform contact fraction. In reality the contact is a strip, so the can gets a circumferential gradient.

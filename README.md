@@ -91,7 +91,7 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 
 **Limits of the module model:**
 - The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
-- Coolant has no thermal mass. Edge cells (v0.4.6) see the wall through a single assumed U-value.
+- Coolant thermal mass (v0.4.7) is lumped per cell's share of the channel (about 20 s lag at the reference flow). Edge cells (v0.4.6) see the wall through a single assumed U-value.
 - Flow, Δp, h_ref, the thermal interface, the roll-end resistance and the hardware dimensions are labelled assumptions in `module.py` and `hardware.py`.
 
 ## Validated against measured temperatures (v0.3.2)
@@ -260,7 +260,8 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.4.4** ✅ | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
 | **v0.4.5** ✅ | Whole-loop pump power and radiator fan energy |
 | **v0.4.6** ✅ | Edge cells on the module wall in the model and the advisor |
-| v0.4.x | Further accuracy updates (coolant thermal mass) |
+| **v0.4.7** ✅ | Coolant thermal mass in the channel |
+| v0.4.x | Remaining accuracy items in [docs/BACKLOG.md](docs/BACKLOG.md) (2D bottom plate, ribbon strip contact, cell-model gaps) |
 | v0.5 | Web app and API |
 
 ## Repository layout

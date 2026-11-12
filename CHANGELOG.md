@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+- **Coolant thermal mass:** the coolant held in each cell's share of the channel (`module.coolant_holdup_kg`, from the v0.4.3 plate and ribbon geometry, about 1 g per M50 cell) stores heat. Energy balance M·cp·dTc/dt = (ṁ·cp/frac)(T_in − Tc) + ΣG(T − Tc), solved implicitly each step, so the outlet coolant lags heat input by about M/ṁ (about 20 s at the reference flow). `simulate_module(..., coolant_mass=False)` restores the steady balance. The hardware mass model now uses the same holdup function.
+- **Effect:** peaks on the long M50 duties move by under 0.1 K and recovery by about a minute; the term matters for short pulses and start-up.
+
 ## 0.4.6
 - **Edge cells** (`simulate_module(..., edge=True)`, `module.Wall`): a cell on the module wall exchanges heat with ambient through a third of its share (it has 4 neighbours instead of 6), at U = 5 W/m²K (assumption). `Wall(fraction=0.5)` for corner cells.
 - **Advisor** (`ModuleStudy.edge_cells`, on by default): edge cells at both ends of the channel are simulated; feasibility uses the hottest of interior and edge cells, and the cell-to-cell spread is hottest minus coolest. New columns `T_peak_interior_C`, `T_peak_edge_outlet_C`, `T_peak_edge_inlet_C`, `hottest_cell`.
