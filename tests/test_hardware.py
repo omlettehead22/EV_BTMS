@@ -94,7 +94,7 @@ def test_ribbon_height_sets_contact():
     for hf in (1.0, 0.5):
         rib = SideRibbon(tube=RibbonGeometry(height_fraction=hf))
         r = simulate_module(
-            flat, Module(Layout("hex", 3.5), None, rib), prof, 3000, 25.0, position="inlet", entropic=False
+            flat, Module(Layout("hex", 3.5), None, rib), prof, 3000, 25.0, position="inlet", entropic=False, n_theta=0
         )
         i = np.searchsorted(r.res.t, 2700)
         rises.append(r.res.T_surface[i] - (25.0 + KELVIN))
