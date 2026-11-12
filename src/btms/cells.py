@@ -87,6 +87,24 @@ def nmc811_jellyroll_properties(T: float = T_REF) -> tuple[float, float, float]:
     return rho, rho_cp / rho, k_radial
 
 
+def nmc811_jellyroll_k_axial(T: float = T_REF) -> float:
+    """In-plane (axial) conductivity of the same repeat unit: layers in parallel [W/(m K)].
+
+    The copper and aluminium foils dominate. This is the ideal value along the
+    winding; how well the roll's ends couple to the can is a separate
+    resistance (see ``btms.module.BottomPlate.R_end``).
+    """
+    k = {
+        "cu": -5.409e-7 * T**3 + 7.054e-4 * T**2 - 0.3727 * T + 463.6,
+        "neg": -2.61e-4 * T**2 + 0.1726 * T - 24.49,
+        "sep": 0.3344,
+        "pos": 2.063e-5 * T**2 - 0.01127 * T + 2.331,
+        "al": 237.0,
+    }
+    th = {"cu": 12e-6, "neg": 2 * 85.2e-6, "sep": 2 * 12e-6, "pos": 2 * 75.6e-6, "al": 16e-6}
+    return sum(th[n] * k[n] for n in th) / sum(th.values())
+
+
 def nmc811_graphite_dUdT(soc: float) -> float:
     """Full-cell entropic coefficient dU/dT [V/K] versus state of charge.
 
@@ -143,6 +161,8 @@ class Cell:
     T_max_charge_C: float | None = None  # degC, datasheet upper limit while charging
     T_max_discharge_C: float | None = None
     sources: tuple[str, ...] = ()
+    # Axial (along the winding) conductivity; defaults to the NMC811 jelly-roll value.
+    k_axial: float = field(default_factory=lambda: nmc811_jellyroll_k_axial())
     # Optional equivalent-circuit model. When set, heat is I (OCV - V) from the
     # ECM (with voltage limits and CC-CV charging) instead of I^2 R0.
     ecm: ECM | None = None

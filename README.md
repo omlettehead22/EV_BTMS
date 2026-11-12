@@ -4,6 +4,50 @@ A transient thermal model of a lithium-ion cell wrapped in a phase-change materi
 
 ![Model domain](docs/figures/figure_3_1_model_domain.png)
 
+## Module level (v0.4)
+
+Real cells sit in a packed array, so the free-air single-cell picture no longer applies. `btms module` models one cell in its share of a **square or hexagonal array**. By symmetry nothing crosses into the neighbour's share, so the unit cell's outer edge is adiabatic.
+
+- **Gap filler:**
+  - air;
+  - plain PCM;
+  - **composite PCM** (paraffin + expanded graphite: 3.85 W/m·K, latent heat × 0.86; grades `RT31-EG` etc.).
+- **Cooling topologies:**
+  - **forced air** through the gaps;
+  - a **bottom cold plate**: heat runs down the winding (k_axial = 25 W/m·K, computed from the layer stack), across the roll-end resistance and the thermal interface (bond line / k) into the coolant;
+  - a **side ribbon** bonded to part of each can;
+  - none (an interior cell of an uncooled pack is adiabatic).
+- **Coolant (or air) warms along the channel**, in balance with the heat it absorbs. The model reports the **coolest (inlet) and hottest (outlet) cell** and the spread between them.
+- **Flow is the single cooling variable.** It sets h (h ∝ flow^0.8) and the coolant rise; pump or fan power is (flow/ρ)·Δp/η with Δp ∝ flow².
+
+```bash
+btms module M50 --compare --c-rate 1.5
+btms module M50 --compare --duty roadtrip --t-env 35
+btms module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
+```
+
+**LG M50 at 1.5C full discharge, 25 °C** (hex packing, 2 mm gaps, 0.05 g/s coolant per cell; [CSV](docs/examples/m50_module_1.5c_25c.csv)):
+
+| Cooling | Filler | Inlet cell peak | Outlet cell peak | Cell-to-cell | In-cell ΔT | Pump / fan per cell |
+|---|---|---|---|---|---|---|
+| none | air | 72.2 °C | 72.2 °C | 0 K | 0 K | 0 |
+| forced air | air | 40.6 °C | 44.1 °C | 3.6 K | 1.5 K | 169 mW |
+| bottom plate | air | 41.6 °C | 47.5 °C | 5.9 K | **9.3 K** | 1.9 mW |
+| bottom plate | RT42-EG | 40.5 °C | 43.5 °C | 3.0 K | 10.6 K | 1.9 mW |
+| side ribbon | air | **29.8 °C** | 39.6 °C | 9.8 K | 1.8 K | 1.9 mW |
+| side ribbon | RT31 | 29.8 °C | **36.1 °C** | 6.3 K | 2.1 K | 1.9 mW |
+
+**What it shows**
+- **Natural cooling doesn't exist inside a pack.** An uncooled interior cell reaches 72 °C, where the free-air single-cell model said about 41 °C.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon wins by about 12 K at the inlet, and its in-cell ΔT is 1.8 K against 9 K. Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **The coolant warms 9–11 K along the channel at this flow**, so the outlet cell runs up to 10 K hotter. PCM in the gaps cuts that spread by a third (9.8 → 6.3 K).
+- **On the 35 °C road trip** (0.45C driving, then 0.7C charge), every liquid topology keeps the M50 within 39 °C, but an uncooled pack reaches 58 °C. Tripling the coolant flow buys about 1.3 K for 27× the pump power.
+
+**Limits of the module model:**
+- The cold plate and ribbon are 1.5D: a distributed sink plus a quasi-steady axial estimate, not a 2D field.
+- Coolant has no thermal mass, and cells at the edge of a module are not modelled.
+- Flow, Δp, h_ref, the thermal interface and the roll-end resistance are labelled assumptions in `module.py`.
+
 ## Validated against measured temperatures (v0.3.2)
 
 The thermal model has been tested blind against **49 tests on a commercial Panasonic NCR18650PF cell**, the cell the thesis calibrated against. The tests cover drive cycles, 1C discharge and CC-CV charge at chamber temperatures from 25 °C down to −20 °C, from the open Kollmeyer dataset (CC BY 4.0).
@@ -163,13 +207,14 @@ print(res.T_max.max() - 273.15, res.pcm_fraction.max(), res.balance_error_pct)
 | **v0.3** ✅ | Design advisor: cooling × PCM sweep, feasibility (peak, ΔT, recovery), Pareto front, three picks, worst-case-resistance re-check, trade-off chart |
 | **v0.3.1** ✅ | Continuous h with fan-law power, chiller, PCM grade library, WLTC and road-trip EV duties, iterative robustness, 2.6× faster solver |
 | **v0.3.2** ✅ | Validation against 49 measured tests (25 to −20 °C); equivalent-circuit electrical model with Butler–Volmer kinetics, voltage cut-off and CC-CV charging; validated Panasonic NCR18650PF cell |
-| v0.4 | Module level: packed unit cell, cold-plate contact and coolant temperature rise, composite PCM |
+| **v0.4** ✅ | Module level: packed unit cell (hex/square), air / PCM / composite-PCM filler, forced air, bottom plate, side ribbon, coolant rise with inlet/outlet cells, pump and fan power from flow |
+| v0.4.1 | Design advisor on the module model: flow, topology, filler, gap as design variables with physical pump/fan energy |
 | v0.5 | Web app and API |
 
 ## Repository layout
 
 ```
-src/btms/        Python package (params, model, cells, materials, electrothermal, ev, design, report, scenarios, metrics, cli)
+src/btms/        Python package (params, model, cells, materials, ecm, electrothermal, module, ev, design, report, validation, scenarios, metrics, cli)
 src/btms/data/   WLTC Class 3b speed trace (UN GTR 15), NCR18650PF OCV
 validation/      dataset preparation, model identification and validation scripts + processed test data
 docs/VALIDATION.md  validation method and results

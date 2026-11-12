@@ -12,11 +12,12 @@ from .electrothermal import (
     simulate_cell,
 )
 from .materials import PCM_LIBRARY, get_pcm
-from .model import SimulationResult, simulate
+from .model import SimulationResult, Sink, simulate
+from .module import AirFlow, BottomPlate, Coolant, Interface, Layout, Module, SideRibbon, simulate_module
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 __all__ = [
     "CELLS",
@@ -27,14 +28,22 @@ __all__ = [
     "PANASONIC_NCR18650PF",
     "PCM",
     "PCM_LIBRARY",
+    "AirFlow",
+    "BottomPlate",
     "Cell",
+    "Coolant",
     "ElectroThermalLoad",
     "Geometry",
+    "Interface",
+    "Layout",
     "Material",
     "MeasuredHeatLoad",
+    "Module",
     "Params",
     "Scenario",
+    "SideRibbon",
     "SimulationResult",
+    "Sink",
     "SolverSettings",
     "check_limits",
     "constant_current",
@@ -47,5 +56,6 @@ __all__ = [
     "segments",
     "simulate",
     "simulate_cell",
+    "simulate_module",
     "thesis_scenarios",
 ]

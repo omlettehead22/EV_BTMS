@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+- **Module-level model** (`btms.module`, `btms module`):
+  - one cell in a packed hex or square array, as an equivalent annulus with an adiabatic outer edge;
+  - gap filler: air, PCM or composite PCM;
+  - cooling: forced air, bottom cold plate (axial conduction, roll-end resistance, thermal interface), side ribbon (contact fraction), or none;
+  - coolant and air warm along the channel, solved in balance with the absorbed heat (stable at any contact-to-flow ratio); inlet and outlet cells are both reported;
+  - flow sets h, the coolant rise and pump/fan power.
+- **Solver:** distributed sinks with a state-dependent sink temperature (`model.Sink`). The heat taken by each sink and its temperature are returned.
+- **Composite PCM grades** (`<grade>-EG`, Yu et al. 2023): k = 3.85 W/m·K, latent heat × 0.86.
+- `Cell.k_axial`: in-plane conductivity of the winding (25 W/m·K for NMC811 layers).
+- **`btms cell --pcm-grade`** to choose the PCM for single runs.
+- Tests: analytic bottom-plate steady state (within 3 %), coolant heat balance, adiabatic interior cell, air-flow equivalence with the bare-cell model, stability at extreme contact-to-flow ratios.
+
 ## 0.3.2
 - **Validation** (`btms.validation`, `validation/`, `docs/VALIDATION.md`) against 49 tests of the Panasonic NCR18650PF (Kollmeyer 2018, CC BY 4.0) at 25 to −20 °C. Thermal mode: 0.59 K median RMSE. Fully predictive: 0.62 K. Regression gates are in `tests/test_validation.py`.
 - **Equivalent-circuit electrical model** (`btms.ecm`):
