@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
-from scipy.linalg import solve_banded
+from scipy.linalg.lapack import dgtsv
 
 from .params import KELVIN, Params
 
@@ -147,7 +147,7 @@ class SimulationResult:
     r: np.ndarray  # m
     region: np.ndarray
     volume: np.ndarray
-    T: np.ndarray  # K, shape (n_nodes, n_times)
+    T: np.ndarray  # K, radial profiles, shape (n_nodes, len(t_T))
     T_max: np.ndarray  # K, hottest cell node
     T_min: np.ndarray  # K, coolest cell node
     dT_cell: np.ndarray  # K, in-cell spread
@@ -166,6 +166,7 @@ class SimulationResult:
     max_iterations: int
     heat_W: np.ndarray  # W, mean cell heat generation over each step
     load: object | None = None  # the Load used, holds its own log
+    t_T: np.ndarray | None = None  # times of the stored radial profiles in T
 
     @property
     def unconverged_steps(self) -> int:
@@ -250,8 +251,17 @@ def simulate(
     V_cell = grid.volume[cell].sum()
 
     T = np.full(n, P.T_initial)
-    T_hist = np.empty((n, nt + 1))
+    # Full radial profiles are stored every `store_every` steps (and at the
+    # end); cell max/min temperatures are tracked every step.
+    k_store = max(1, int(s.store_every))
+    store_idx = np.unique(np.r_[np.arange(0, nt + 1, k_store), nt])
+    T_hist = np.empty((n, store_idx.size))
     T_hist[:, 0] = T
+    slot = np.full(nt + 1, -1)
+    slot[store_idx] = np.arange(store_idx.size)
+    T_max = np.empty(nt + 1)
+    T_min = np.empty(nt + 1)
+    T_max[0] = T_min[0] = P.T_initial
     pcm_frac = np.empty(nt + 1)
     pcm_frac[0] = liquid_fraction(T, grid, P)
     zeros = lambda: np.zeros(nt + 1)
@@ -261,10 +271,36 @@ def simulate(
     all_converged = True
 
     rho_cp_base = rho * cp
-    ab = np.zeros((3, n))
-    ab[0, 1:] = -upper
-    ab[2, :-1] = -lower
+    sub = -lower  # M[i+1, i]
+    sup = -upper  # M[i, i+1]
     q = np.zeros(n)
+
+    def solve(main_diag, rhs):
+        x = dgtsv(sub, main_diag, sup, rhs, overwrite_dl=0, overwrite_d=0, overwrite_du=0, overwrite_b=0)[3]
+        if not np.all(np.isfinite(x)):
+            raise FloatingPointError("Non-finite temperature in linear solve.")
+        return x
+
+    # Fast specific enthalpy with precomputed masks (hot path).
+    pcm_idx = np.flatnonzero(pcm)
+    cp_lin = np.where(cell, P.cell.cp, P.case.cp).astype(float)
+    pc = P.pcm
+    h_sol = pc.cp_solid * (pc.T_solidus - KELVIN)
+    h_liq = h_sol + pc.cp_mushy * pc.melt_range
+
+    def enthalpy(T):
+        h = cp_lin * (T - KELVIN)
+        Tp = T[pcm_idx]
+        h[pcm_idx] = np.where(
+            Tp <= pc.T_solidus,
+            pc.cp_solid * (Tp - KELVIN),
+            np.where(
+                Tp < pc.T_liquidus,
+                h_sol + pc.cp_mushy * (Tp - pc.T_solidus),
+                h_liq + pc.cp_liquid * (Tp - pc.T_liquidus),
+            ),
+        )
+        return h
 
     def conduction_times(T):
         out = diag * T
@@ -272,7 +308,7 @@ def simulate(
         out[1:] += lower * T[:-1]
         return out
 
-    h_old = specific_enthalpy(T, grid, P)
+    h_old = enthalpy(T)
     for step in range(nt):
         if load is not None:
             T_cell = float(np.sum(T[cell] * grid.volume[cell]) / V_cell)
@@ -291,22 +327,18 @@ def simulate(
         for it in range(1, s.max_iterations + 1):
             C = rho_cp_base.copy()
             C[pcm] = P.pcm.rho * apparent_cp(T_guess[pcm], P)
-            ab[1, :] = C / dt - diag
+            main = C / dt - diag
             if s.scheme == "enthalpy":
                 # Newton on R(T) = rho (h(T) - h_old)/dt - (A T + q + b)
-                resid = rho * (specific_enthalpy(T_guess, grid, P) - h_old) / dt - (conduction_times(T_guess) + q + b)
-                delta = solve_banded((1, 1), ab, -resid)
-                if not np.all(np.isfinite(delta)):
-                    raise FloatingPointError(f"Non-finite temperature at t={t[step] + dt}")
+                resid = rho * (enthalpy(T_guess) - h_old) / dt - (conduction_times(T_guess) + q + b)
+                delta = solve(main, -resid)
                 T_guess = T_guess + delta
                 if np.max(np.abs(delta)) < s.tolerance:
                     converged = True
                     break
             else:
                 rhs = C / dt * T_old + q + b
-                T_cand = solve_banded((1, 1), ab, rhs)
-                if not np.all(np.isfinite(T_cand)):
-                    raise FloatingPointError(f"Non-finite temperature at t={t[step] + dt}")
+                T_cand = solve(main, rhs)
                 change = np.max(np.abs(T_cand - T_guess))
                 if change < s.tolerance:
                     T_guess = T_cand
@@ -319,7 +351,7 @@ def simulate(
         iters[step + 1] = it if converged else s.max_iterations
         T = T_guess
 
-        h_new = specific_enthalpy(T, grid, P)
+        h_new = enthalpy(T)
         dE_gen[step + 1] = np.sum(q * grid.volume) * dt
         dE_bc[step + 1] = G_bc * (T[-1] - T_env) * dt
         dE_node = rho * grid.volume * (h_new - h_old)
@@ -330,19 +362,22 @@ def simulate(
         dE_st[step + 1] = dE_node.sum()
         dE_res[step + 1] = dE_gen[step + 1] - dE_bc[step + 1] - dE_st[step + 1]
 
-        T_hist[:, step + 1] = T
+        if slot[step + 1] >= 0:
+            T_hist[:, slot[step + 1]] = T
+        Tc = T[cell]
+        T_max[step + 1] = Tc.max()
+        T_min[step + 1] = Tc.min()
         pcm_frac[step + 1] = liquid_fraction(T, grid, P)
 
-    Tc = T_hist[cell]
     return SimulationResult(
         t=t,
         r=grid.r,
         region=grid.region,
         volume=grid.volume,
         T=T_hist,
-        T_max=Tc.max(axis=0),
-        T_min=Tc.min(axis=0),
-        dT_cell=Tc.max(axis=0) - Tc.min(axis=0),
+        T_max=T_max,
+        T_min=T_min,
+        dT_cell=T_max - T_min,
         pcm_fraction=pcm_frac,
         dE_gen=dE_gen,
         dE_boundary=dE_bc,
@@ -358,4 +393,5 @@ def simulate(
         max_iterations=s.max_iterations,
         heat_W=heat_W,
         load=load,
+        t_T=t[store_idx],
     )

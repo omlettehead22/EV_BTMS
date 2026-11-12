@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "btms"
-version = "0.3.0"
+version = "0.3.1"
 description = "Battery thermal management (PCM + air/liquid cooling) design toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,3 +24,6 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.setuptools.package-data]
+btms = ["data/*.csv"]

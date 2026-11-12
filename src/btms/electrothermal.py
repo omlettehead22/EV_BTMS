@@ -145,23 +145,33 @@ def simulate_cell(
     return res, load
 
 
-def check_limits(cell: Cell, load: ElectroThermalLoad, res) -> list[str]:
-    """Datasheet-limit warnings for a finished run (empty list = within limits)."""
+def check_limits(cell: Cell, load: ElectroThermalLoad, res, window_s: float = 30.0) -> list[str]:
+    """Datasheet-limit warnings for a finished run (empty list = within limits).
+
+    C-rates are judged on a rolling ``window_s`` mean, so short drive-cycle
+    peaks are not reported as breaches of a *continuous* rating.
+    """
     from .params import KELVIN
 
     a = load.arrays()
     warnings: list[str] = []
-    if a["current_A"].size == 0:
+    current = a["current_A"]
+    if current.size == 0:
         return warnings
-    c_dis = max(a["current_A"].max(), 0.0) / cell.capacity_Ah
-    c_chg = max(-a["current_A"].min(), 0.0) / cell.capacity_Ah
+    dt = float(np.median(np.diff(a["t"]))) if current.size > 1 else 1.0
+    n = max(1, min(current.size, round(window_s / dt)))
+    rolling = np.convolve(current, np.ones(n) / n, mode="valid")
+    c_dis = max(rolling.max(), 0.0) / cell.capacity_Ah
+    c_chg = max(-rolling.min(), 0.0) / cell.capacity_Ah
+    charging = bool((current < 0).any())
+    discharging = bool((current > 0).any())
     T_peak = res.T_max.max() - KELVIN
     if cell.max_discharge_C is not None and c_dis > cell.max_discharge_C + 1e-9:
         warnings.append(f"Discharge {c_dis:.2f}C exceeds the {cell.max_discharge_C:.2f}C continuous rating.")
     if cell.max_charge_C is not None and c_chg > cell.max_charge_C + 1e-9:
         warnings.append(f"Charge {c_chg:.2f}C exceeds the {cell.max_charge_C:.2f}C rating.")
-    if c_chg > 0 and cell.T_max_charge_C is not None and T_peak > cell.T_max_charge_C:
+    if charging and cell.T_max_charge_C is not None and T_peak > cell.T_max_charge_C:
         warnings.append(f"Peak {T_peak:.1f} degC exceeds the {cell.T_max_charge_C:.0f} degC charging limit.")
-    if c_dis > 0 and cell.T_max_discharge_C is not None and T_peak > cell.T_max_discharge_C:
+    if discharging and cell.T_max_discharge_C is not None and T_peak > cell.T_max_discharge_C:
         warnings.append(f"Peak {T_peak:.1f} degC exceeds the {cell.T_max_discharge_C:.0f} degC discharge limit.")
     return warnings
