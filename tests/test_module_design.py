@@ -129,3 +129,29 @@ def test_summary_when_feasible_designs_are_not_robust():
     assert r.table.feasible.any() and not r.picks
     assert "No robust design" in text and "No feasible design" not in text
     assert "nominal" in text
+
+
+def test_fast_mode_tracks_normal_mode():
+    """Fast mode: same verdicts, peaks and spreads close to normal mode."""
+    kw = {
+        "topologies": ("air", "bottom", "ribbon"),
+        "air_flows_g_s": (0.3,),
+        "coolant_flows_g_s": (0.05,),
+        "chiller_inlets_C": (),
+        "fillers": (None, "RT42"),
+    }
+    duty = DutyCycle.constant(1.5)
+    req = Requirements(T_env_C=25.0)
+    rows = {}
+    for mode in ("normal", "fast"):
+        study = ModuleStudy(LG_M50, duty, req, mode=mode, **kw)
+        rows[mode] = [evaluate_module_design(study, d) for d in study.designs()]
+    for n, f in zip(rows["normal"], rows["fast"]):
+        assert f["feasible"] == n["feasible"]
+        assert f["T_peak_C"] == pytest.approx(n["T_peak_C"], abs=0.3)
+        assert f["dT_cell_C"] == pytest.approx(n["dT_cell_C"], abs=0.3)
+
+
+def test_unknown_mode_is_rejected():
+    with pytest.raises(ValueError, match="Unknown mode"):
+        ModuleStudy(LG_M50, DutyCycle.constant(1.0), Requirements(), mode="turbo")

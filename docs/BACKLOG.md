@@ -1,6 +1,6 @@
 # Known issues and improvement backlog
 
-Open items as of v0.4.13, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
+Open items as of v0.5.0, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Cell model
 1. **LG M50 circuit is derived, not measured.** It comes from PyBaMM's DFN with the ORegan2022 parameter set and matches that model's heat within 0.94–1.13× ([VALIDATION.md](VALIDATION.md#lg-m50-checked-against-a-physics-model-not-measured)), but no measured M50 temperatures check it. The Warwick M50 core-temperature data (Mendeley bf6fksxpp2) would; it is not reachable from this build. Its cold voltage knee arrives late (cut-off up to 0.75 Ah after the DFN at 0 °C, 1.4C).
@@ -26,7 +26,7 @@ Open items as of v0.4.13, ranked within each group by how much they could change
 15. **Ageing as a third objective.** Temperature drives calendar and cycle ageing. Scoring designs on predicted capacity fade would show what "hotter but lighter" costs in battery life. Probably the highest-value product feature.
 16. **Cost objective (£/pack):** PCM £/kg, cooling hardware, chiller.
 17. **Cold climate:** pre-heating energy and cold-start limits, not just cooling.
-18. **Speed.** A module design is four cell simulations, two of them 2D for plate and ribbon designs, in a Python time loop: the 35 °C road-trip study (39 designs) takes several minutes on one core. A web app needs a fast mode (coarser grids, batching, Numba, or a surrogate).
+18. **Speed.** Fast mode (v0.5.0) runs the road-trip study in about 40 s on two cores, against about 3 minutes in normal mode. Not yet done: adaptive time steps (long steady cruise and rest periods would allow much longer steps), stopping a simulation once the cell has recovered, and compiled inner loops (Numba). A design is four cell simulations in a Python time loop, so more cores help directly.
 19. **Search instead of grid** once the design variables multiply (NSGA-II or Bayesian optimisation).
 20. **Uncertainty:** Monte Carlo over the assumptions instead of a single worst case.
 21. **Assumption registry exported with every result**, so a CSV carries the assumptions that produced it.
@@ -55,3 +55,4 @@ Open items as of v0.4.13, ranked within each group by how much they could change
 | v0.4.11 | LG M50 circuit derived from the DFN; worst-case re-check scales every loss term |
 | v0.4.12 | Audit: duplicate-design crash, contradictory messages, CLI header and flags, air cooling now depends on the gap |
 | v0.4.13 | Physics audit: laminar coolant and cross-flow air laws, in-cell spread on the cooled face, per-phase datasheet temperature checks, datasheet limits as currents, MJ1 charge limits, CLI input checks |
+| v0.5.0 | Fast mode (about 5×); exact region volumes on every mesh; faster electrical model |

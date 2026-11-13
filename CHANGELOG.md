@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+Fast and normal modes, the first v0.5 mini update.
+
+- **New: fast mode.** `packtherm design ... --fast`, `packtherm module ... --fast`, `ModuleStudy(mode="fast")` and `compare_modules(mode="fast")`.
+  - Settings: 5 s thermal step, 0.3 mm radial spacing, 12 plate layers, 8 ribbon slices.
+  - Speed: 5.0–5.5× quicker on the three example studies (road trip 196 s → 38 s on two cores).
+  - Accuracy over all 117 designs: hottest cell within 0.12 K, in-cell spread within 0.19 K, recovery within 2 min, energy within 0.6 %. No design changes verdict and the picks are the same.
+  - Details in `docs/FAST_MODE.md`. Normal mode stays the default.
+- **New: electrical substeps.** `ElectroThermalLoad(max_substep=...)` runs the cell model in steps of at most that length inside a longer thermal step, and logs one averaged entry per thermal step. A drive cycle's second-by-second current is followed whatever the thermal step. It takes a single step when the current is constant across the step. The log gains `I_abs_A` (mean absolute current), and studies now use it for energy throughput, so drive and regen within one step don't cancel.
+- **Changed: exact region volumes in module simulations.** A uniform radial mesh puts each node wholly in the cell or the filler, so the filler's volume (and heat capacity and latent heat) was only right to half a node. Each region now gets its exact volume (`Geometry.exact_volumes`; the module model's default). Effect in normal mode: peaks move by at most 0.09 K (sealed RT42 at 1.5C), with no verdict changes. The thesis model and its parity tests are unchanged.
+- **Faster electrical model:** scalar OCV interpolation without `np.interp` (identical results), which helps both modes.
+- `Resolution` and `RESOLUTIONS` (in `packtherm.module`) hold the settings for each mode.
+- Examples regenerated in normal mode; README quick start, roadmap and BACKLOG updated.
+
 ## 0.4.13
 
 A physics and minor-bug audit: every model file read against its physics, numerical convergence checked, and every CLI option tried with bad input.

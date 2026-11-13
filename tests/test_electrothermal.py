@@ -201,3 +201,24 @@ def test_datasheet_limits_are_currents():
     assert PF.max_charge_C * PF.capacity_Ah == pytest.approx(1.375)
     assert LG_MJ1.max_charge_C * LG_MJ1.capacity_Ah == pytest.approx(3.4)
     assert LG_MJ1.T_max_charge_C == 45.0
+
+
+def test_electrical_substeps_follow_the_current_and_conserve_charge():
+    """A long thermal step split into electrical substeps matches short steps."""
+    from packtherm.ev import wltc_duty
+
+    duty = wltc_duty(LG_M50)
+    prof = duty.profile(LG_M50)
+    fine = ElectroThermalLoad(LG_M50, prof, soc0=0.9)
+    coarse = ElectroThermalLoad(LG_M50, prof, soc0=0.9, max_substep=1.0)
+    q_f = [fine.power(t, 1.0, 298.15) for t in np.arange(0.0, 600.0, 1.0)]
+    q_c = [coarse.power(t, 10.0, 298.15) for t in np.arange(0.0, 600.0, 10.0)]
+    assert len(coarse.log["t"]) == 60  # one entry per thermal step
+    # Heat: a constant-current stretch takes one 10 s electrical step, which
+    # integrates the slow branch slightly differently from ten 1 s steps.
+    assert np.sum(q_c) * 10.0 == pytest.approx(np.sum(q_f) * 1.0, rel=1e-3)
+    assert coarse.soc == pytest.approx(fine.soc, abs=1e-12)
+    a_f, a_c = fine.arrays(), coarse.arrays()
+    # Drive and regen cancel in the mean current but not in the absolute throughput.
+    assert np.sum(a_c["I_abs_A"]) * 10.0 == pytest.approx(np.sum(a_f["I_abs_A"]), rel=1e-9)
+    assert np.sum(np.abs(a_c["current_A"])) * 10.0 < np.sum(a_f["I_abs_A"])

@@ -182,10 +182,11 @@ def _design(args) -> None:
             chiller=Chiller(cop=args.cop),
             chiller_runs=args.chiller_runs,
             resistance_margin=args.r_margin,
+            mode="fast" if args.fast else "normal",
         )
         cells = "interior and edge cells at inlet and outlet" if study.edge_cells else "inlet and outlet cell"
         n = len(study.designs())
-        print(f"Simulating {n} module design{'s' if n != 1 else ''} ({cells})...")
+        print(f"Simulating {n} module design{'s' if n != 1 else ''} ({cells}, {study.mode} mode)...")
         t0 = time.perf_counter()
         result = run_module_study(study, workers=args.workers)
         stem = "module_" + stem
@@ -293,8 +294,9 @@ def _module(args) -> None:
     gaps = sorted({m.layout.gap_mm for m in modules})
     gap_text = " / ".join(f"{g:g}" for g in gaps) + " mm gap" + (" (ribbons widened to fit)" if len(gaps) > 1 else "")
     where = "edge cells (on the module wall)" if args.edge else "interior cells"
-    print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {gap_text}, {where}")
-    rows = compare_modules(cell, modules, duty, args.t_env, edge=args.edge)
+    mode = ", fast mode" if args.fast else ""
+    print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {gap_text}, {where}{mode}")
+    rows = compare_modules(cell, modules, duty, args.t_env, edge=args.edge, mode="fast" if args.fast else "normal")
     df = pd.DataFrame(rows)
     cols = [
         "cooling",
@@ -411,12 +413,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     a.add_argument("--r-margin", type=NONNEG, default=0.2, help="Worst-case resistance margin over the published max.")
     d.add_argument("--workers", type=POS_INT)
+    d.add_argument(
+        "--fast",
+        action="store_true",
+        help="fast mode (--level module): coarser time step and grids, about 10x quicker, "
+        "peaks within about 0.1 K of normal mode (see docs/FAST_MODE.md)",
+    )
     d.add_argument("--out-dir", type=Path)
     d.set_defaults(func=_design)
 
     mo = sub.add_parser("module", help="Simulate a cell inside a packed module (inlet and outlet cell).")
     mo.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
     mo.add_argument("--compare", action="store_true", help="Compare all cooling topologies x fillers.")
+    mo.add_argument("--fast", action="store_true", help="fast mode: coarser step and grids (see docs/FAST_MODE.md)")
     mo.add_argument("--cooling", choices=["none", "air", "bottom", "ribbon"], default="ribbon")
     mo.add_argument(
         "--filler", default=None, help=f"Gap filler: air (default) or a PCM grade: {', '.join(PCM_LIBRARY)}"

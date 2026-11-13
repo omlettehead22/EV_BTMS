@@ -56,6 +56,11 @@ class Geometry:
     r_case: float = 0.013  # m, casing outer radius (1 mm wall)
     length: float = 0.065  # m, axial length
     n_cells: int = 130  # radial control volumes
+    # Scale each region's control volumes to its exact volume. A uniform mesh
+    # puts each node wholly in one region by its centre, so a thin layer's
+    # volume is only right to half a node; at a coarse mesh that error matters
+    # (a 1.6 mm filler at 0.3 mm spacing: up to ~10 % of its heat capacity).
+    exact_volumes: bool = False
 
     def __post_init__(self) -> None:
         if not (0 < self.r_cell <= self.r_pcm <= self.r_case):

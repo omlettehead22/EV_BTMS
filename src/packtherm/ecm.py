@@ -26,9 +26,8 @@ constant voltage at V_max and ends when |I| falls below the cut-off.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, field
-
-import numpy as np
 
 F = 96485.33212
 R_GAS = 8.314462618
@@ -70,7 +69,11 @@ class ECM:
         if soc < s[0]:
             k = min(len(s) - 1, max(1, round(0.05 / (s[1] - s[0]))))
             return v[0] + (v[k] - v[0]) / (s[k] - s[0]) * (soc - s[0])
-        return float(np.interp(soc, s, v))
+        # Scalar linear interpolation (np.interp on one value is slow in a time loop).
+        i = bisect_right(s, soc) - 1
+        if i >= len(s) - 1:
+            return float(v[-1])
+        return v[i] + (v[i + 1] - v[i]) * (soc - s[i]) / (s[i + 1] - s[i])
 
     def R0(self, T: float) -> float:
         return self.R0_25C * math.exp(self.Ea_R0 / R_GAS * (1.0 / T - 1.0 / T_REF))

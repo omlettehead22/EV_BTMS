@@ -13,6 +13,7 @@ Temperature feeds back through R(SOC, T) every time step.
 from __future__ import annotations
 
 import csv
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,6 +75,11 @@ class ElectroThermalLoad:
     soc_limits : current is cut (set to 0) once SOC leaves this window,
                  e.g. a charge to 80 % stops at 0.8.
     entropic   : include the reversible heat term.
+    max_substep: longest electrical step [s]. A longer thermal step is split
+                 into equal electrical substeps at the step's start temperature,
+                 so a drive cycle's current is followed at this resolution
+                 whatever the thermal step; the log keeps one averaged entry per
+                 thermal step. None: one electrical step per thermal step.
     """
 
     cell: Cell
@@ -81,6 +87,7 @@ class ElectroThermalLoad:
     soc0: float = 1.0
     soc_limits: tuple[float, float] = (0.0, 1.0)
     entropic: bool = True
+    max_substep: float | None = None
     soc: float = field(init=False)
     log: dict[str, list[float]] = field(init=False, repr=False)
 
@@ -92,9 +99,45 @@ class ElectroThermalLoad:
             raise ValueError("Require 0 <= soc_min < soc_max <= 1 and soc0 inside the window.")
         self.soc = self.soc0
         self.ecm_state = ECMState() if self.cell.ecm is not None else None
-        self.log = {k: [] for k in ("t", "current_A", "soc", "R_ohm", "Q_irr_W", "Q_rev_W", "V")}
+        self.log = {k: [] for k in ("t", "current_A", "soc", "R_ohm", "Q_irr_W", "Q_rev_W", "V", "I_abs_A")}
 
     def power(self, t: float, dt: float, T_cell: float) -> float:
+        h = self.max_substep
+        if h is None or dt <= h * (1.0 + 1e-9):
+            return self._power_one(t, dt, T_cell)
+        n = math.ceil(dt / h - 1e-9)
+        starts = [t + i * dt / n for i in range(n)]
+        requested = [float(self.profile(x)) for x in starts]
+        if max(requested) == min(requested):
+            # Constant current over the step (a constant or piecewise duty): one
+            # electrical step, as the electrical model is accurate at this step.
+            return self._power_one(t, dt, T_cell)
+        mark = len(self.log["t"])
+        q = sum(self._power_one(x, dt / n, T_cell) for x in starts) / n
+        sub = {k: v[mark:] for k, v in self.log.items()}
+        for v in self.log.values():
+            del v[mark:]
+
+        def mean(xs):
+            xs = [x for x in xs if not math.isnan(x)]
+            return sum(xs) / len(xs) if xs else math.nan
+
+        merged = {
+            "t": t,
+            "current_A": sum(sub["current_A"]) / n,  # charge-preserving
+            "soc": sub["soc"][-1],
+            "R_ohm": mean(sub["R_ohm"]),
+            "Q_irr_W": sum(sub["Q_irr_W"]) / n,
+            "Q_rev_W": sum(sub["Q_rev_W"]) / n,
+            "V": mean(sub["V"]),
+            # Drive and regen within one step cancel in the mean current, not here.
+            "I_abs_A": sum(sub["I_abs_A"]) / n,
+        }
+        for k in self.log:
+            self.log[k].append(merged[k])
+        return q
+
+    def _power_one(self, t: float, dt: float, T_cell: float) -> float:
         current = float(self.profile(t))
         if self.ecm_state is not None:
             return self._power_ecm(t, dt, T_cell, current)
@@ -111,7 +154,7 @@ class ElectroThermalLoad:
         q_irr = current**2 * R
         q_rev = -current * T_cell * self.cell.dUdT(soc_mid) if self.entropic else 0.0
         self.soc = min(max(self.soc - current * dt / (3600.0 * self.cell.capacity_Ah), lo), hi)
-        for k, v in zip(self.log, (t, current, self.soc, R, q_irr, q_rev, np.nan)):
+        for k, v in zip(self.log, (t, current, self.soc, R, q_irr, q_rev, np.nan, abs(current))):
             self.log[k].append(v)
         return q_irr + q_rev
 
@@ -135,7 +178,7 @@ class ElectroThermalLoad:
         if hi < 1.0:
             self.soc = min(self.soc, hi)
         R_app = (ecm.ocv(soc_mid) - V) / current if current else np.nan
-        for k, v in zip(self.log, (t, current, self.soc, R_app, q_irr, q_rev, V)):
+        for k, v in zip(self.log, (t, current, self.soc, R_app, q_irr, q_rev, V, abs(current))):
             self.log[k].append(v)
         return q_irr + q_rev
 

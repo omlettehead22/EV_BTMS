@@ -291,11 +291,11 @@ def evaluate_design(
     )
     a = load.arrays()
     dt = np.diff(res.t)
-    throughput_Wh = float(np.sum(np.abs(a["current_A"]) * dt)) * cell.V_nominal / 3600.0
+    throughput_Wh = float(np.sum(a["I_abs_A"] * dt)) * cell.V_nominal / 3600.0
 
     # Recovery: first time after the current stops with T_max within 1 K of
     # ambient and the PCM (almost) fully solid.
-    active = np.flatnonzero(np.abs(a["current_A"]) > 0)
+    active = np.flatnonzero(a["I_abs_A"] > 0)
     t_stop = float(a["t"][active[-1]] + study.dt) if active.size else 0.0
     after = res.t >= t_stop - 1e-9
     ready = after & (res.T_max - T_amb < 1.0) & (res.pcm_fraction < 0.01)
