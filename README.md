@@ -73,7 +73,7 @@ Method, per-test results and known gaps: [docs/VALIDATION.md](docs/VALIDATION.md
 
 ## What the model covers
 
-- **Cells:** electro-thermal heat from current (equivalent circuit with Butler–Volmer kinetics and a slow branch, temperature- and SOC-dependent, with entropic heat where the cell has data), coulomb-counted SOC, voltage cut-off and CC-CV charging. Library: Panasonic NCR18650PF (measured), LG M50 (derived), LG MJ1 (lumped resistance); `packtherm cells` lists them.
+- **Cells:** electro-thermal heat from current (equivalent circuit with Butler–Volmer kinetics and a slow branch, temperature- and SOC-dependent, with entropic heat where the cell has data), coulomb-counted SOC, voltage cut-off and CC-CV charging. Library: Panasonic NCR18650PF (measured), LG M50 (derived), LG MJ1 (lumped resistance); `packtherm cells` lists them. Your own cylindrical NMC or NCA cell can be described from its datasheet (lumped resistance, labelled as less accurate; see below).
 - **Module:** one cell's share of a hex or square array. Gap filler: air, PCM (RT31, RT42 and others) or PCM + expanded graphite. Cooling: forced air through the gaps, a bottom cold plate (2D, radius × height) or a side ribbon (2D, radius × angle). The coolant warms along the channel with its own thermal mass. Every design is judged on four cells: interior and on the module wall, at the coolant inlet and outlet.
 - **Energy:** fan and pump power from flow and pressure drop over the whole loop (laminar coolant channels, cross-flow air over the cans), the radiator fan, and chiller electricity with an ambient-dependent COP and heat leak.
 - **Mass:** filler plus cooling hardware built up from sourced dimensions (plate sheets and channels, ribbon walls and ribs, bond lines, pack-level loop, fans and chiller).
@@ -97,6 +97,27 @@ packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 packtherm module M50 --compare --duty roadtrip --t-env 35 --edge   # cells on the module wall
 pytest -q
 ```
+
+**Your own cell.** Describe a cylindrical NMC or NCA cell from its datasheet in a small YAML file, then use the file wherever a cell name goes. Mistakes such as mass in kg or resistance in ohms are caught before anything runs. Every key is in [docs/STUDY_FILES.md](docs/STUDY_FILES.md#user-defined-cells).
+
+```yaml
+# my_cell.yaml
+name: My 21700 cell
+format: 21700
+chemistry: NMC
+capacity_Ah: 5.0
+V_nominal: 3.6
+mass_g: 69
+DCIR_mOhm: 22
+max_discharge_A: 15
+```
+
+```bash
+packtherm cells my_cell.yaml                                # check it and see the derived properties
+packtherm design my_cell.yaml --duty roadtrip --t-env 35 --fast
+```
+
+User-defined cells use the lumped resistance model (no voltage model, so no cut-off or constant-voltage charge taper), and their results say so. [`docs/examples/user_cell_mj1.yaml`](docs/examples/user_cell_mj1.yaml) is the LG MJ1 written this way; it gives exactly the library MJ1's results.
 
 ```python
 from packtherm import LG_M50, Coolant, Layout, Module, SideRibbon, compare_modules
@@ -141,15 +162,16 @@ A module study of about 40 designs takes 2–3½ minutes on two cores, or under 
 | **v0.4.12** | Audit: crash and message fixes, air cooling depends on the gap, rebuilt README, 2D field and validation figures |
 | **v0.4.13** | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
 | **v0.5.0** | Fast and normal modes: fast is about 5× quicker with the same verdicts on the example studies; exact region volumes on every mesh |
-| **v0.5.1** (current) | Study files (YAML or JSON): `packtherm run`, `packtherm template`, results JSON; README numbers checked in CI |
-| v0.5.x (next) | User-defined cells, HTTP API, web app, public deployment |
+| **v0.5.1** | Study files (YAML or JSON): `packtherm run`, `packtherm template`, results JSON; README numbers checked in CI |
+| **v0.5.2** (current) | User-defined cylindrical NMC/NCA cells from datasheet values, with unit-slip checks |
+| v0.5.x (next) | HTTP API, web app, public deployment, LFP cells |
 
 Results from earlier versions, as they stood at the time, are in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
 
 ```
-src/packtherm/        the package: cells, ecm, electrothermal, model (1D), model2d, module, hardware,
+src/packtherm/        the package: cells, user_cells, ecm, electrothermal, model (1D), model2d, module, hardware,
                       module_design, study (study files), design, ev, materials, report, validation, cli
 src/packtherm/data/   WLTC Class 3b trace (UN GTR 15), NCR18650PF and LG M50 OCV tables
 validation/           dataset preparation, identification, M50 derivation and checks, processed test data
@@ -159,7 +181,7 @@ docs/validation/      validation figures and per-test results
 docs/VALIDATION.md    validation method and results
 docs/BACKLOG.md       known issues and improvement plan
 docs/FAST_MODE.md     fast and normal modes: settings, speed and accuracy
-docs/STUDY_FILES.md   study and results file formats
+docs/STUDY_FILES.md   study, cell and results file formats
 docs/HISTORY.md       earlier versions, thesis results and figures (docs/history/)
 tests/                parity, physics, module, design and validation tests
 matlab/               original thesis code and reference results

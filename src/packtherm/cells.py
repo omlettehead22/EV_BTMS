@@ -169,6 +169,9 @@ class Cell:
     # Optional equivalent-circuit model. When set, heat is I (OCV - V) from the
     # ECM (with voltage limits and CC-CV charging) instead of I^2 R0.
     ecm: ECM | None = None
+    # How the electrical side is modelled, as shown to users (cells table, results).
+    model_label: str = "lumped DCIR"
+    user_defined: bool = False
 
     @property
     def radius(self) -> float:
@@ -194,6 +197,13 @@ class Cell:
 
     def current(self, c_rate: float) -> float:
         return c_rate * self.capacity_Ah
+
+    @staticmethod
+    def from_datasheet(**values) -> Cell:
+        """A user-defined cell from datasheet values (see ``packtherm.user_cells``)."""
+        from .user_cells import from_datasheet
+
+        return from_datasheet(**values)
 
 
 _RHO_JR, _CP_JR, _K_JR = nmc811_jellyroll_properties()
@@ -259,10 +269,11 @@ LG_M50 = Cell(
     T_max_discharge_C=60.0,
     sources=("BD-M50", "ORegan2022", "Chen2020"),
     ecm=LG_M50_ECM,
+    model_label="circuit (derived)",
 )
 
 # The v0.4.10 lumped-resistance M50 (I^2 R with an Arrhenius DCIR), for comparison.
-LG_M50_LUMPED = replace(LG_M50, name="LG INR21700 M50 (lumped DCIR)", ecm=None)
+LG_M50_LUMPED = replace(LG_M50, name="LG INR21700 M50 (lumped DCIR)", ecm=None, model_label="lumped DCIR")
 
 LG_MJ1 = Cell(
     name="LG INR18650 MJ1",
@@ -305,10 +316,17 @@ def with_R0(cell: Cell, R0: float) -> Cell:
 
 
 def get_cell(key: str) -> Cell:
+    """A library cell by key, or a user-defined cell from a .yaml/.yml/.json file."""
+    if key.lower().endswith((".yaml", ".yml", ".json")):
+        from .user_cells import load_cell
+
+        return load_cell(key)
     try:
         return CELLS[key.upper()]
     except KeyError:
-        raise KeyError(f"Unknown cell '{key}'. Available: {', '.join(CELLS)}") from None
+        raise KeyError(
+            f"Unknown cell '{key}'. Available: {', '.join(CELLS)}, or a cell file (.yaml or .json)"
+        ) from None
 
 
 def params_for_cell(
@@ -406,6 +424,7 @@ PANASONIC_NCR18650PF = Cell(
     T_max_discharge_C=60.0,
     sources=("Kollmeyer2018", "NCR18650PF datasheet"),
     ecm=NCR18650PF_ECM,
+    model_label="circuit (measured)",
 )
 
 CELLS["PF"] = PANASONIC_NCR18650PF
