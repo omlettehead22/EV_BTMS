@@ -69,8 +69,9 @@ def test_composite_pcm():
 def test_air_flow_sets_h_and_fan_power():
     a, b = AirFlow(), AirFlow(flow_g_s_per_cell=0.6)
     assert a.h == pytest.approx(30.0)
-    assert b.h == pytest.approx(30.0 * 2**0.8)
-    assert b.pump_power_W_per_cell == pytest.approx(8 * a.pump_power_W_per_cell)
+    # Cross-flow over the bank of cans: h ~ v^0.6, dp ~ v^1.8, fan power ~ flow^2.8.
+    assert b.h == pytest.approx(30.0 * 2**0.6)
+    assert b.pump_power_W_per_cell == pytest.approx(2**2.8 * a.pump_power_W_per_cell)
     assert AirFlow.with_h(45.0).h == pytest.approx(45.0)
     with pytest.raises(ValueError):
         AirFlow(flow_g_s_per_cell=0.0)
@@ -135,10 +136,17 @@ def test_chiller_hands_back_to_radiator():
 
 
 def test_coolant_scaling():
+    """Laminar channels: h nearly flat with flow (plate 1/3 power, ribbon none)."""
     c = Coolant()
     c2 = replace(c, flow_g_s_per_cell=0.1)
-    assert c2.h == pytest.approx(c.h * 2**0.8)
-    assert c2.pump_power_W_per_cell == pytest.approx(c.pump_power_W_per_cell * 8)  # P ~ flow^3
+    assert c2.h == pytest.approx(c.h * 2 ** (1 / 3))  # alone: developing flow
+    plate = BottomPlate(coolant=c2)
+    ribbon = SideRibbon(coolant=c2)
+    assert plate.coolant.h == pytest.approx(1500.0 * 2 ** (1 / 3))
+    assert ribbon.coolant.h == pytest.approx(1500.0)  # fully developed in the ports
+    assert BottomPlate(coolant=Coolant(h_flow_exponent=0.8)).coolant.h_flow_exponent == 0.8  # explicit wins
+    with pytest.raises(ValueError):
+        Coolant(flow_g_s_per_cell=0.0)
     assert c.rise_K(1.0) == pytest.approx(1.0 / (5e-5 * 3500))
 
 
@@ -188,7 +196,8 @@ def test_bottom_plate_steady_state_matches_analytic():
 def test_bottom_plate_2d_matches_analytic():
     """2D r-z model, no filler, uniform generation, cooled base, adiabatic top:
     T(z) - T_c = q (L z - z^2/2)/k + q L R, so top - T_c = q (L^2/(2k) + L R)
-    and the in-cell spread top - base = q L^2 / (2k)."""
+    and the in-cell spread top - base = q L^2 / (2k). The coolest point is on
+    the roll's base face (z = 0), not at the bottom node centre."""
     plate = BottomPlate(coolant=Coolant(), tim=Interface(), R_end=5e-4)
     L, k = FLAT.height, FLAT.k_axial
     R = plate.R_end + plate.tim.R + 1 / plate.coolant.h
@@ -201,10 +210,9 @@ def test_bottom_plate_2d_matches_analytic():
         z_top = L - dz / 2
         top = q * (L * z_top - z_top**2 / 2) / k + q * L * R
         assert r.T_top[i] - (25.0 + KELVIN) == pytest.approx(top, rel=0.01)
-        z_bot = dz / 2
-        spread = q * ((L * z_top - z_top**2 / 2) - (L * z_bot - z_bot**2 / 2)) / k
+        spread = q * (L * z_top - z_top**2 / 2) / k  # top node centre to the base face
         # Radial spread is ~0 here (no side losses), so dT_cell is the axial spread.
-        assert r.res.dT_cell[i] == pytest.approx(spread, rel=0.03)
+        assert r.res.dT_cell[i] == pytest.approx(spread, rel=0.01)
         assert r.res.balance_error_pct < 1e-6
 
 
@@ -280,8 +288,9 @@ def test_pump_covers_whole_loop():
     c = Coolant()
     q = c.mdot / c.rho  # m^3/s per cell
     assert c.pump_power_W_per_cell == pytest.approx(q * (20e3 + 30e3) / 0.3)
+    # Module channels laminar (dp ~ flow), the rest of the loop turbulent (dp ~ flow^2).
     doubled = Coolant(flow_g_s_per_cell=0.1)
-    assert doubled.pump_power_W_per_cell == pytest.approx(8 * c.pump_power_W_per_cell)
+    assert doubled.pump_power_W_per_cell == pytest.approx(2 * q * (2 * 20e3 + 4 * 30e3) / 0.3)
 
 
 def test_radiator_fan_charged_on_rejected_heat():
@@ -405,13 +414,30 @@ def test_ribbon_strip_contact():
 
 
 def test_air_gap_sets_h_and_fan_power():
-    """Fixed mass flow through a narrower gap: faster air, h ~ 1/gap, dp ~ 1/gap^3."""
+    """Fixed mass flow through a narrower gap: faster air between the cans, v ~ 1/gap."""
     ref = Module(Layout("hex", 2.0), None, AirFlow())
     narrow = Module(Layout("hex", 1.0), None, AirFlow())
     assert ref.cooling.h == pytest.approx(30.0)
     assert narrow.cooling.gap_mm == 1.0
-    assert narrow.cooling.h == pytest.approx(2 * ref.cooling.h)
-    assert narrow.cooling.pump_power_W_per_cell == pytest.approx(8 * ref.cooling.pump_power_W_per_cell)
+    assert narrow.cooling.h == pytest.approx(2**0.6 * ref.cooling.h)
+    assert narrow.cooling.pump_power_W_per_cell == pytest.approx(2**1.8 * ref.cooling.pump_power_W_per_cell)
     prof = constant_current(LG_M50, 1.5)
     T = [simulate_module(LG_M50, m, prof, 1200, 25.0).T_peak_C for m in (narrow, ref)]
     assert T[0] < T[1]
+
+
+def test_coolant_rise_is_measured_from_the_inlet():
+    """With the chiller handing back to the radiator, the rise is above the inlet at each time."""
+    from packtherm.module import _coolant_rise_max
+
+    c = Coolant(inlet_C=15.0, chiller_until_s=600.0)
+    m = Module(layout=RIBBON_GAP, filler=None, cooling=SideRibbon(coolant=c))
+    r = simulate_module(LG_M50, m, constant_current(LG_M50, 1.0), 1800, 25.0, position="outlet")
+    T_in = np.array([c.inlet_K(t, r.T_ambient) for t in r.res.t])
+    rise = _coolant_rise_max(r)
+    assert rise == pytest.approx(float(np.max(r.T_coolant - T_in)))
+    # The chilled coolant is warmed straight away by the 25 degC cell, so a rise
+    # measured from the first-step coolant temperature (the old method) hides
+    # most of it, and the inlet's 10 K step at hand-back confuses it further.
+    assert 5.0 < rise < 10.0
+    assert abs(float(r.T_coolant.max() - r.T_coolant[1]) - rise) > 2.0

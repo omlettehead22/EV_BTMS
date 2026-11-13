@@ -202,3 +202,25 @@ def test_cli_design_writes_chart(tmp_path, capsys):
     pngs = list(tmp_path.glob("*_tradeoff.png"))
     assert len(pngs) == 1 and pngs[0].stat().st_size > 10_000
     assert len(list(tmp_path.glob("*_designs.csv"))) == 1
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["cell", "XYZ"],
+        ["cell", "M50", "--c-rate", "0"],
+        ["module", "M50", "--flow", "0"],
+        ["module", "M50", "--contact", "1.5"],
+        ["module", "M50", "--cooling", "air", "--filler", "RT31"],
+        ["design", "M50", "--cycles", "0", "--duty", "wltc"],
+        ["design", "M50", "--r-margin", "-1"],
+    ],
+)
+def test_cli_rejects_bad_input_cleanly(argv, capsys):
+    """Bad input exits with a usage-style message (code 2), not a traceback."""
+    from packtherm.cli import main
+
+    with pytest.raises(SystemExit) as e:
+        main(argv)
+    assert e.value.code == 2
+    assert "error:" in capsys.readouterr().err

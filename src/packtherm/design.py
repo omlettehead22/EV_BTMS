@@ -51,6 +51,8 @@ class FanLaw:
     fan/pump power ~ pressure drop x flow ~ v^3. Hence P ~ h^(3/0.8) = h^3.75.
     Anchored at one (h, power) pair; the thesis mid levels are the default
     anchors. Valid near the anchor; h is best swept within the thesis range.
+    Used by the single-cell advisor (``--level cell``) only; the module model
+    uses flow laws for its own channels (``packtherm.module``).
     """
 
     h_ref: float  # W/(m^2 K)

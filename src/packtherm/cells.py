@@ -23,7 +23,9 @@ Sources
               3.5 Ah, 46.8 g measured, DCIR 33 mOhm (summary) and 60 mOhm
               (Heenan et al., J. Electrochem. Soc. 167 (2020)), -20 to 60 degC.
 [MJ1-DS]      LG Chem INR18650 MJ1 product specification: 3.635 V nominal,
-              10 A max continuous discharge, approx. 18.3 x 65.1 mm.
+              10 A max continuous discharge, 3.4 A (1C of the 3.4 Ah minimum)
+              max charge, charge 0-45 degC, discharge -20-60 degC,
+              approx. 18.3 x 65.1 mm.
 """
 
 from __future__ import annotations
@@ -110,7 +112,8 @@ def nmc811_graphite_dUdT(soc: float) -> float:
 
     dU/dT = dU_pos/dT(y) - dU_neg/dT(x), electrode fits from [ORegan2022].
     Stoichiometry windows are derived from the LG M50 PyBaMM ``ORegan2022``
-    set (100 % SOC: x = 0.976, y = 0.270; 5 Ah spans dx = 0.961, dy = 0.698).
+    set: 100 % SOC is its initial state (x = 28866/29583 = 0.976,
+    y = 13975/51765 = 0.270), and 5 Ah spans dx = 0.961, dy = 0.698.
     """
     soc = min(max(soc, 0.0), 1.0)
     x = 0.976 - 0.961 * (1.0 - soc)
@@ -277,9 +280,9 @@ LG_MJ1 = Cell(
     # Same chemistry family as the M50; jelly-roll properties reused (ASSUMPTION).
     cp=_CP_JR,
     k_radial=_K_JR,
-    max_charge_C=None,
-    max_discharge_C=10.0 / 3.5,
-    T_max_charge_C=None,
+    max_charge_C=3.4 / 3.5,  # 3.4 A
+    max_discharge_C=10.0 / 3.5,  # 10 A
+    T_max_charge_C=45.0,
     T_max_discharge_C=60.0,
     sources=("BD-MJ1", "MJ1-DS", "ORegan2022"),
 )
@@ -392,8 +395,10 @@ PANASONIC_NCR18650PF = Cell(
     k_radial=_K_JR,
     # ASSUMPTION: entropic heat neglected (no NCA dU/dT data in this dataset).
     dUdT=_zero_dUdT,
-    max_charge_C=0.5,  # datasheet standard charge 0.5C (1375 mA)
-    max_discharge_C=10.0 / 2.9,  # 10 A
+    # Datasheet limits are currents; C-rates here are against this cell's
+    # measured capacity, which is what the model uses to turn C-rate into amps.
+    max_charge_C=1.375 / 2.99491,  # datasheet standard charge 1375 mA
+    max_discharge_C=10.0 / 2.99491,  # 10 A
     T_max_charge_C=45.0,
     T_max_discharge_C=60.0,
     sources=("Kollmeyer2018", "NCR18650PF datasheet"),

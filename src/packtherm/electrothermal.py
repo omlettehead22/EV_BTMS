@@ -228,15 +228,22 @@ def check_limits(cell: Cell, load: ElectroThermalLoad, res, window_s: float = 30
     rolling = np.convolve(current, np.ones(n) / n, mode="valid")
     c_dis = max(rolling.max(), 0.0) / cell.capacity_Ah
     c_chg = max(-rolling.min(), 0.0) / cell.capacity_Ah
+    # Judge each temperature limit on the peak while that kind of current flows:
+    # a hot discharge followed by a cooler charge is not a charging breach.
+    # T_max holds the start state then the state after each logged step.
+    T_after = np.asarray(res.T_max)[-current.size :] - KELVIN
     charging = bool((current < 0).any())
     discharging = bool((current > 0).any())
-    T_peak = res.T_max.max() - KELVIN
+    T_peak_chg = float(T_after[current < 0].max()) if charging else -np.inf
+    T_peak_dis = float(T_after[current > 0].max()) if discharging else -np.inf
     if cell.max_discharge_C is not None and c_dis > cell.max_discharge_C + 1e-9:
         warnings.append(f"Discharge {c_dis:.2f}C exceeds the {cell.max_discharge_C:.2f}C continuous rating.")
     if cell.max_charge_C is not None and c_chg > cell.max_charge_C + 1e-9:
         warnings.append(f"Charge {c_chg:.2f}C exceeds the {cell.max_charge_C:.2f}C rating.")
-    if charging and cell.T_max_charge_C is not None and T_peak > cell.T_max_charge_C:
-        warnings.append(f"Peak {T_peak:.1f} degC exceeds the {cell.T_max_charge_C:.0f} degC charging limit.")
-    if discharging and cell.T_max_discharge_C is not None and T_peak > cell.T_max_discharge_C:
-        warnings.append(f"Peak {T_peak:.1f} degC exceeds the {cell.T_max_discharge_C:.0f} degC discharge limit.")
+    if cell.T_max_charge_C is not None and T_peak_chg > cell.T_max_charge_C:
+        warnings.append(f"Peak {T_peak_chg:.1f} degC while charging exceeds the {cell.T_max_charge_C:.0f} degC limit.")
+    if cell.T_max_discharge_C is not None and T_peak_dis > cell.T_max_discharge_C:
+        warnings.append(
+            f"Peak {T_peak_dis:.1f} degC while discharging exceeds the {cell.T_max_discharge_C:.0f} degC limit."
+        )
     return warnings

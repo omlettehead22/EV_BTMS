@@ -1,9 +1,9 @@
 """Module-level design advisor: cooling topology, flow, chiller, filler and gap.
 
 This is the v0.4.1 successor of the single-cell advisor in :mod:`packtherm.design`.
-Each design is a :class:`packtherm.module.Module` and is scored on the cell at the
-coolant outlet (the hottest cell). The cell at the inlet is simulated too, so
-the cell-to-cell spread along the channel is known and can be limited.
+Each design is a :class:`packtherm.module.Module`, scored on the hottest of four
+cells: interior and edge (on the module wall), at the coolant inlet and outlet.
+The cell-to-cell spread along the channel is known and can be limited.
 
 Design variables
 ----------------
@@ -30,9 +30,9 @@ Costs, per cell:
   pressure drop, plus chiller electricity (heat taken by sub-ambient coolant /
   COP), until the cell is ready again, as % of the energy the cell moves
 
-Feasibility, on the outlet cell: peak (top of the roll for a bottom plate) and
-in-cell spread (radial + axial estimate) within the requirements, recovery in
-time, and optionally the inlet-to-outlet spread within a limit. The front,
+Feasibility: peak and in-cell spread of the hottest of those cells within the
+requirements (plate and ribbon designs from their 2D fields), recovery in time
+(interior outlet cell), and optionally the cell-to-cell spread within a limit. The front,
 worst-case-resistance re-check and picks are shared with the single-cell
 advisor (:func:`packtherm.design.select_front`).
 """

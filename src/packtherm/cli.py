@@ -21,6 +21,30 @@ from .params import DEFAULT_AUX_POWER, DEFAULT_H, KELVIN, default_params
 from .scenarios import run_scenario, thesis_scenarios
 
 
+def _number(kind, lo, lo_open, hi=None):
+    """argparse type: a number with bounds, so bad input fails with a usage message."""
+
+    def parse(text):
+        try:
+            x = kind(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+        if (x <= lo) if lo_open else (x < lo):
+            raise argparse.ArgumentTypeError(f"must be {'>' if lo_open else '>='} {lo:g}, got {text}")
+        if hi is not None and x > hi:
+            raise argparse.ArgumentTypeError(f"must be <= {hi:g}, got {text}")
+        return x
+
+    return parse
+
+
+POS = _number(float, 0.0, True)  # > 0
+NONNEG = _number(float, 0.0, False)  # >= 0
+FRACTION = _number(float, 0.0, False, 1.0)  # 0-1
+CONTACT = _number(float, 0.0, True, 1.0)  # (0, 1]
+POS_INT = _number(int, 0, True)
+
+
 def _thesis(args) -> None:
     P = default_params()
     pairs = []
@@ -47,7 +71,7 @@ def _cells(args) -> None:
             "model": "circuit (measured)" if k == "PF" else ("circuit (derived)" if c.ecm else "lumped DCIR"),
             "DCIR_25C_mOhm": c.R0_25C * 1e3,
             "mass_g": c.mass * 1e3,
-            "max_chg_C": c.max_charge_C,
+            "max_chg_C": round(c.max_charge_C, 2) if c.max_charge_C else None,
             "max_dis_C": round(c.max_discharge_C, 2) if c.max_discharge_C else None,
         }
         for k, c in CELLS.items()
@@ -160,7 +184,8 @@ def _design(args) -> None:
             resistance_margin=args.r_margin,
         )
         cells = "interior and edge cells at inlet and outlet" if study.edge_cells else "inlet and outlet cell"
-        print(f"Simulating {len(study.designs())} module designs ({cells})...")
+        n = len(study.designs())
+        print(f"Simulating {n} module design{'s' if n != 1 else ''} ({cells})...")
         t0 = time.perf_counter()
         result = run_module_study(study, workers=args.workers)
         stem = "module_" + stem
@@ -203,7 +228,7 @@ def _cell_study(args, cell, duty, req):
         resistance_margin=args.r_margin,
     )
     n = len(options) * len(study.pcm_choices())
-    print(f"Simulating {n} single-cell designs...")
+    print(f"Simulating {n} single-cell design{'s' if n != 1 else ''}...")
     t0 = time.perf_counter()
     result = run_study(study, workers=args.workers)
     result.t0 = t0
@@ -304,18 +329,18 @@ def main(argv: list[str] | None = None) -> None:
     e = sub.add_parser("cell", help="Electro-thermal run of one cell at constant C-rate.")
     e.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
     e.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
-    e.add_argument("--c-rate", type=float, default=1.0)
+    e.add_argument("--c-rate", type=POS, default=1.0)
     e.add_argument("--cooling", choices=["air", "liquid", "none"], default="air")
     e.add_argument("--level", choices=["low", "mid", "high"], default="mid")
-    e.add_argument("--h", type=float, help="Override convective coefficient [W/m2K].")
-    e.add_argument("--pcm-mm", type=float, default=3.0)
+    e.add_argument("--h", type=NONNEG, help="Override convective coefficient [W/m2K].")
+    e.add_argument("--pcm-mm", type=NONNEG, default=3.0)
     e.add_argument("--pcm-grade", default="RT31", help=f"PCM grade: {', '.join(PCM_LIBRARY)}")
-    e.add_argument("--case-mm", type=float, default=1.0)
+    e.add_argument("--case-mm", type=NONNEG, default=1.0)
     e.add_argument("--t-env", type=float, default=25.0, help="Ambient/coolant [degC].")
-    e.add_argument("--soc0", type=float)
-    e.add_argument("--soc-min", type=float, default=0.0)
-    e.add_argument("--soc-max", type=float, default=1.0)
-    e.add_argument("--duration", type=float, help="Seconds (default: time to cross the SOC window +5%%).")
+    e.add_argument("--soc0", type=FRACTION)
+    e.add_argument("--soc-min", type=FRACTION, default=0.0)
+    e.add_argument("--soc-max", type=FRACTION, default=1.0)
+    e.add_argument("--duration", type=POS, help="Seconds (default: time to cross the SOC window +5%%).")
     e.set_defaults(func=_cell)
 
     d = sub.add_parser("design", help="Sweep module cooling designs and chart the trade-off.")
@@ -329,63 +354,63 @@ def main(argv: list[str] | None = None) -> None:
     g = d.add_argument_group("duty")
     g.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
     g.add_argument("--mode", choices=["charge", "discharge"], default="discharge", help="constant duty")
-    g.add_argument("--c-rate", type=float, default=1.0, help="constant duty")
-    g.add_argument("--soc0", type=float, help="constant duty")
-    g.add_argument("--soc-min", type=float, default=0.0, help="constant duty")
-    g.add_argument("--soc-max", type=float, default=1.0, help="constant duty")
-    g.add_argument("--cycles", type=int, default=3, help="wltc: back-to-back cycles")
-    g.add_argument("--speed", type=float, default=130.0, help="roadtrip: motorway speed [km/h]")
-    g.add_argument("--charge-c", type=float, help="roadtrip: charge C-rate (default: cell maximum)")
-    g.add_argument("--pack-kwh", type=float, default=60.0, help="EV duties: pack energy")
-    g.add_argument("--pack-v", type=float, default=350.0, help="EV duties: nominal pack voltage")
-    g.add_argument("--rest-h", type=float, default=3.0, help="Rest simulated after the event [h].")
+    g.add_argument("--c-rate", type=POS, default=1.0, help="constant duty")
+    g.add_argument("--soc0", type=FRACTION, help="constant duty")
+    g.add_argument("--soc-min", type=FRACTION, default=0.0, help="constant duty")
+    g.add_argument("--soc-max", type=FRACTION, default=1.0, help="constant duty")
+    g.add_argument("--cycles", type=POS_INT, default=3, help="wltc: back-to-back cycles")
+    g.add_argument("--speed", type=POS, default=130.0, help="roadtrip: motorway speed [km/h]")
+    g.add_argument("--charge-c", type=POS, help="roadtrip: charge C-rate (default: cell maximum)")
+    g.add_argument("--pack-kwh", type=POS, default=60.0, help="EV duties: pack energy")
+    g.add_argument("--pack-v", type=POS, default=350.0, help="EV duties: nominal pack voltage")
+    g.add_argument("--rest-h", type=NONNEG, default=3.0, help="Rest simulated after the event [h].")
     r = d.add_argument_group("requirements")
     r.add_argument("--t-env", type=float, default=25.0, help="Ambient [degC].")
     r.add_argument("--t-max", type=float, help="Peak limit [degC] (default min(45, datasheet)).")
-    r.add_argument("--dt-max", type=float, default=5.0, help="In-cell spread limit [degC].")
-    r.add_argument("--recovery-max-min", type=float, help="Must be ready again within this many minutes.")
+    r.add_argument("--dt-max", type=POS, default=5.0, help="In-cell spread limit [degC].")
+    r.add_argument("--recovery-max-min", type=NONNEG, help="Must be ready again within this many minutes.")
     r.add_argument(
-        "--cell-to-cell-max", type=float, help="module: hottest-to-coolest cell peak limit, edge cells included [K]."
+        "--cell-to-cell-max", type=POS, help="module: hottest-to-coolest cell peak limit, edge cells included [K]."
     )
     m = d.add_argument_group("module design space (--level module)")
     m.add_argument("--topologies", nargs="+", default=["none", "air", "bottom", "ribbon"])
-    m.add_argument("--air-flows", type=float, nargs="+", default=[0.15, 0.3, 0.6], help="Air per cell [g/s].")
-    m.add_argument("--coolant-flows", type=float, nargs="+", default=[0.02, 0.05], help="Coolant per cell [g/s].")
+    m.add_argument("--air-flows", type=POS, nargs="+", default=[0.15, 0.3, 0.6], help="Air per cell [g/s].")
+    m.add_argument("--coolant-flows", type=POS, nargs="+", default=[0.02, 0.05], help="Coolant per cell [g/s].")
     m.add_argument(
         "--fillers", nargs="*", default=["none", "RT31", "RT42", "RT31-EG"], help=f"none or {', '.join(PCM_LIBRARY)}"
     )
-    m.add_argument("--gaps", type=float, nargs="+", default=[2.0], help="Can-to-can gaps [mm].")
+    m.add_argument("--gaps", type=NONNEG, nargs="+", default=[2.0], help="Can-to-can gaps [mm].")
     m.add_argument("--packing", choices=["hex", "square"], default="hex")
     m.add_argument("--no-edge-cells", action="store_true", help="Skip the cells on the module wall.")
-    m.add_argument("--wall-u", type=float, default=5.0, help="Module wall to ambient, for edge cells [W/m2K].")
+    m.add_argument("--wall-u", type=NONNEG, default=5.0, help="Module wall to ambient, for edge cells [W/m2K].")
     v = d.add_argument_group("single-cell design space (--level cell)")
-    v.add_argument("--air-h", type=float, nargs="+", default=[10, 15, 22, 33, 45, 60])
-    v.add_argument("--liquid-h", type=float, nargs="+", default=[100, 180, 330, 600])
+    v.add_argument("--air-h", type=NONNEG, nargs="+", default=[10, 15, 22, 33, 45, 60])
+    v.add_argument("--liquid-h", type=POS, nargs="+", default=[100, 180, 330, 600])
     d.add_argument(
         "--chiller-c", type=float, nargs="*", default=[15.0], help="Chiller setpoints [degC]; none to disable."
     )
     v.add_argument("--thesis-levels", action="store_true", help="Use the discrete thesis cooling levels instead.")
     v.add_argument("--pcm-grades", nargs="*", default=["RT28HC", "RT31", "OM35", "RT42"])
-    v.add_argument("--pcm-mm", type=float, nargs="+", default=[2, 4], help="PCM thicknesses (no PCM always included).")
-    v.add_argument("--case-mm", type=float, default=1.0)
+    v.add_argument("--pcm-mm", type=NONNEG, nargs="+", default=[2, 4], help="PCM thicknesses (no PCM always included).")
+    v.add_argument("--case-mm", type=NONNEG, default=1.0)
     a = d.add_argument_group("assumptions")
     a.add_argument(
-        "--cells-in-pack", type=int, default=100, help="--level cell only: cells sharing the anchor fan/pump power."
+        "--cells-in-pack", type=POS_INT, default=100, help="--level cell only: cells sharing the anchor fan/pump power."
     )
-    a.add_argument("--air-kg-per-kwh", type=float, default=0.5, help="--level cell only.")
-    a.add_argument("--liquid-kg-per-kwh", type=float, default=1.0, help="--level cell only.")
-    a.add_argument("--liquid-loop-kg", type=float, default=3.0, help="module: pump, manifolds, hoses per pack.")
-    a.add_argument("--air-system-kg", type=float, default=4.0, help="module: fan, plenum, ducts per pack.")
-    a.add_argument("--chiller-kg", type=float, default=4.0, help="module: chiller, valve, lines per pack.")
-    a.add_argument("--cop", type=float, help="Fixed chiller COP (module default: from set-point and ambient; cell: 3).")
+    a.add_argument("--air-kg-per-kwh", type=NONNEG, default=0.5, help="--level cell only.")
+    a.add_argument("--liquid-kg-per-kwh", type=NONNEG, default=1.0, help="--level cell only.")
+    a.add_argument("--liquid-loop-kg", type=NONNEG, default=3.0, help="module: pump, manifolds, hoses per pack.")
+    a.add_argument("--air-system-kg", type=NONNEG, default=4.0, help="module: fan, plenum, ducts per pack.")
+    a.add_argument("--chiller-kg", type=NONNEG, default=4.0, help="module: chiller, valve, lines per pack.")
+    a.add_argument("--cop", type=POS, help="Fixed chiller COP (module default: from set-point and ambient; cell: 3).")
     a.add_argument(
         "--chiller-runs",
         choices=["event", "always"],
         default="event",
         help="module: chiller on during the event only (then radiator), or throughout.",
     )
-    a.add_argument("--r-margin", type=float, default=0.2, help="Worst-case resistance margin over the published max.")
-    d.add_argument("--workers", type=int)
+    a.add_argument("--r-margin", type=NONNEG, default=0.2, help="Worst-case resistance margin over the published max.")
+    d.add_argument("--workers", type=POS_INT)
     d.add_argument("--out-dir", type=Path)
     d.set_defaults(func=_design)
 
@@ -398,24 +423,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     mo.add_argument("--fillers", nargs="*", default=["RT31", "RT31-EG", "RT42-EG"], help="Fillers for --compare.")
     mo.add_argument("--packing", choices=["hex", "square"], default="hex")
-    mo.add_argument("--gap", type=float, default=2.0, help="Can-to-can gap [mm].")
-    mo.add_argument("--flow", type=float, default=0.05, help="Coolant flow per cell [g/s].")
+    mo.add_argument("--gap", type=NONNEG, default=2.0, help="Can-to-can gap [mm].")
+    mo.add_argument("--flow", type=POS, default=0.05, help="Coolant flow per cell [g/s].")
     mo.add_argument("--inlet-c", type=float, help="Coolant inlet [degC] (default ambient; lower = chiller).")
-    mo.add_argument("--contact", type=float, default=0.25, help="Ribbon contact fraction of the circumference.")
-    mo.add_argument("--tim-mm", type=float, default=0.5)
-    mo.add_argument("--tim-k", type=float, default=2.0)
-    mo.add_argument("--air-flow", type=float, default=0.3, help="Air flow per cell for --cooling air [g/s].")
+    mo.add_argument("--contact", type=CONTACT, default=0.25, help="Ribbon contact fraction of the circumference.")
+    mo.add_argument("--tim-mm", type=POS, default=0.5)
+    mo.add_argument("--tim-k", type=POS, default=2.0)
+    mo.add_argument("--air-flow", type=POS, default=0.3, help="Air flow per cell for --cooling air [g/s].")
     mo.add_argument("--duty", choices=["constant", "wltc", "roadtrip"], default="constant")
     mo.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
-    mo.add_argument("--c-rate", type=float, default=1.0)
-    mo.add_argument("--soc0", type=float)
-    mo.add_argument("--soc-min", type=float, default=0.0)
-    mo.add_argument("--soc-max", type=float, default=1.0)
-    mo.add_argument("--cycles", type=int, default=3)
-    mo.add_argument("--speed", type=float, default=130.0)
-    mo.add_argument("--charge-c", type=float)
-    mo.add_argument("--pack-kwh", type=float, default=60.0)
-    mo.add_argument("--pack-v", type=float, default=350.0)
+    mo.add_argument("--c-rate", type=POS, default=1.0)
+    mo.add_argument("--soc0", type=FRACTION)
+    mo.add_argument("--soc-min", type=FRACTION, default=0.0)
+    mo.add_argument("--soc-max", type=FRACTION, default=1.0)
+    mo.add_argument("--cycles", type=POS_INT, default=3)
+    mo.add_argument("--speed", type=POS, default=130.0)
+    mo.add_argument("--charge-c", type=POS)
+    mo.add_argument("--pack-kwh", type=POS, default=60.0)
+    mo.add_argument("--pack-v", type=POS, default=350.0)
     mo.add_argument("--t-env", type=float, default=25.0)
     mo.add_argument("--edge", action="store_true", help="Run the cells on the module wall (edge cells).")
     mo.add_argument("--out", type=Path, help="Write results CSV here.")
@@ -424,7 +449,11 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
     if args.cmd is None:
         args = ap.parse_args(["thesis", *(argv or [])])
-    args.func(args)
+    try:
+        args.func(args)
+    except (KeyError, ValueError) as e:  # unknown cell or PCM, invalid combination
+        msg = e.args[0] if e.args else str(e)
+        ap.exit(2, f"packtherm {args.cmd}: error: {msg}\n")
 
 
 if __name__ == "__main__":

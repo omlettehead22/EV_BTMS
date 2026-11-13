@@ -83,6 +83,11 @@ def simulate_2d(
     R_path = np.where(reg1 == CELL, axial.R_base_cell, axial.R_base_filler)
     G_base = np.zeros(n)
     G_base[:nr] = area_ann / (dz / (2 * k_z1) + R_path)
+    # The roll's base face sits half a layer below the bottom node centres: the
+    # share of each node-to-coolant drop inside that half layer. The coolest
+    # point of the cell is on that face, not at a node centre (v0.4.13).
+    face = np.zeros(n)
+    face[:nr] = (dz / (2 * k_z1)) / (dz / (2 * k_z1) + R_path)
     G_wall = np.zeros(n)
     if wall is not None:
         a_per_h, U = wall
@@ -99,10 +104,10 @@ def simulate_2d(
                 _link(rows, cols, vals, base + i, base + nr + i, Gz[i])
     K = sp.csc_matrix((vals, (rows, cols)), shape=(n, n))
     top = np.arange((nz - 1) * nr, n)
-    return _run(P, g1, np.tile(reg1, nz), vol, K, G_base, G_wall, coolant_T, T_env, load, duration, top)
+    return _run(P, g1, np.tile(reg1, nz), vol, K, G_base, G_wall, coolant_T, T_env, load, duration, top, face=face)
 
 
-def _run(P, g1, reg, vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, watch, share=1.0):
+def _run(P, g1, reg, vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, watch, share=1.0, face=None):
     """Shared implicit enthalpy-Newton loop for the 2D grids.
 
     K: conduction conductance matrix [W/K] (Laplacian, no boundary terms);
@@ -110,6 +115,9 @@ def _run(P, g1, reg, vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, w
     watch: node indices whose hottest cell node is reported every step.
     share: the fraction of the cell the grid covers (0.5 for a half by
     symmetry). Heat, energies and sink flows are reported per whole cell.
+    face: per node, the share of its drop to the coolant that lies between the
+    node centre and the cooled face; the coolest cell temperature is taken on
+    that face (so the in-cell spread does not depend on the layer thickness).
     """
     s = P.solver
     n = vol.size
@@ -185,7 +193,12 @@ def _run(P, g1, reg, vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, w
         h_old = h_new
         out["heat"][step + 1] = P_W
         out["T_max"][step + 1] = T[cell].max()
-        out["T_min"][step + 1] = T[cell].min()
+        T_lo = T[cell].min()
+        if face is not None:
+            cooled = cell & (face > 0)
+            if cooled.any():
+                T_lo = min(T_lo, float(np.min(T[cooled] - face[cooled] * (T[cooled] - Tc))))
+        out["T_min"][step + 1] = T_lo
         out["T_watch"][step + 1] = T[watch_cell].max()
         out["T_surf"][step + 1] = T[surf]
         if pcm.any():
@@ -283,6 +296,10 @@ def simulate_rtheta(
     G_cool = np.zeros(n)
     G_half = 1.0 / (g1.dr / (2 * k_r1[i_can]) + 1.0 / G_contact_per_area)
     G_cool[np.arange(nt_) * nr + i_can] = G_half * r_can * covered * contact_height
+    face = np.zeros(n)
+    face[np.arange(nt_) * nr + i_can] = np.where(
+        covered > 0, (g1.dr / (2 * k_r1[i_can])) / (g1.dr / (2 * k_r1[i_can]) + 1.0 / G_contact_per_area), 0.0
+    )
     G_wall = np.zeros(n)
     if wall is not None:
         a_per_h, U = wall
@@ -299,7 +316,9 @@ def simulate_rtheta(
                 _link(rows, cols, vals, base + i, base + nr + i, Gt[i])
     K = sp.csc_matrix((vals, (rows, cols)), shape=(n, n))
     can = np.arange(nt_) * nr + i_can
-    return _run(P, g1, np.tile(reg1, nt_), vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, can, share=0.5)
+    return _run(
+        P, g1, np.tile(reg1, nt_), vol, K, G_cool, G_wall, coolant_T, T_env, load, duration, can, share=0.5, face=face
+    )
 
 
 __all__ = ["Axial", "Strip", "simulate_2d", "simulate_rtheta"]

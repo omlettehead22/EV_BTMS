@@ -167,5 +167,37 @@ def test_cli_pcm_grade(capsys):
     assert "RT42 3 mm (melts ~40 degC)" in hot and "RT28HC" in cool
     peak = lambda out: float(out.split("Peak cell temperature")[1].split()[0])
     assert peak(cool) < peak(hot)  # RT28HC starts melting below this peak; RT42 never does
-    with pytest.raises(KeyError):
+    with pytest.raises(SystemExit) as e:  # a clean CLI error, not a traceback
         main(["cell", "M50", "--pcm-grade", "nope"])
+    assert e.value.code == 2
+    assert "Unknown PCM 'nope'" in capsys.readouterr().err
+
+
+def test_temperature_limits_judged_per_phase():
+    """A hot discharge followed by a cool charge is not a charging-limit breach."""
+    from packtherm.electrothermal import segments
+
+    cell = replace(LG_M50, T_max_charge_C=30.0, T_max_discharge_C=60.0)
+    prof = segments(cell, [(1800, 1.5), (3600, 0.0), (300, -0.1)])
+    res, load = simulate_cell(cell, prof, 5700, h=0.5, T_env=298.15, pcm_thickness=0, case_thickness=0, soc0=1.0)
+    T_peak = res.T_max.max() - 273.15
+    assert T_peak > 30.0  # the discharge is hot
+    w = check_limits(cell, load, res)
+    a = load.arrays()
+    T_charge = (res.T_max[1:] - 273.15)[a["current_A"] < 0].max()
+    assert any("while charging" in x for x in w) == (T_charge > 30.0)
+    cool = segments(cell, [(1800, 1.5), (5 * 3600, 0.0), (300, -0.1)])
+    res2, load2 = simulate_cell(cell, cool, 5 * 3600 + 2100, h=10.0, T_env=298.15, soc0=1.0)
+    assert res2.T_max.max() - 273.15 > 30.0  # hot discharge, then cooled before charging
+    assert not any("charging" in x for x in check_limits(cell, load2, res2))
+
+
+def test_datasheet_limits_are_currents():
+    """C-rate limits convert back to the datasheet currents through the model's capacity."""
+    from packtherm.cells import LG_MJ1
+    from packtherm.cells import PANASONIC_NCR18650PF as PF
+
+    assert PF.max_discharge_C * PF.capacity_Ah == pytest.approx(10.0)
+    assert PF.max_charge_C * PF.capacity_Ah == pytest.approx(1.375)
+    assert LG_MJ1.max_charge_C * LG_MJ1.capacity_Ah == pytest.approx(3.4)
+    assert LG_MJ1.T_max_charge_C == 45.0
