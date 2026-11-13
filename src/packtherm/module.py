@@ -18,7 +18,8 @@ expanded-graphite composite PCM.
 Heat leaves through one cooling topology:
 
 * ``AirFlow``: forced air through the gaps, h on the can surface (air filler
-  only). Flow sets h (h ~ flow^0.8), the air's temperature rise and fan power.
+  only). Flow and gap set h (cross-flow over the cans, h ~ (flow/gap)^0.6),
+  the air's temperature rise and fan power.
 * ``BottomPlate``: cells stand on a cold plate. Solved on a radius x height
   grid (``model2d.simulate_2d``): heat runs down the winding (``Cell.k_axial``),
   across the roll-to-can end resistance, the thermal interface and the coolant
@@ -35,9 +36,10 @@ Coolant (plate or ribbon) warms as it passes cells and holds heat itself: the
 coolant in each cell's share of the channel (``coolant_holdup_kg``) is a lump
 with heat capacity, solved implicitly each step together with the heat the
 cell rejects. ``position`` picks the cell: "outlet" (hottest coolant, the
-default), "inlet" (coldest) or "mean". Flow sets h (h ~ flow^0.8) and pump
-power over the whole loop, (flow/rho) (dp_module + dp_loop) / eta with
-dp ~ flow^2. A chiller (``Coolant.inlet_C`` below ambient) can hand back to the
+default), "inlet" (coldest) or "mean". Flow sets h (the channels are laminar,
+so only weakly; see ``Coolant``) and pump power over the whole loop,
+(flow/rho) (dp_module + dp_loop) / eta, with dp_module ~ flow (laminar) and
+dp_loop ~ flow^2. A chiller (``Coolant.inlet_C`` below ambient) can hand back to the
 radiator after ``chiller_until_s``; ``Chiller`` prices its electricity.
 
 ``edge=True`` puts the cell on the module wall (``Wall``): a share of its
@@ -48,6 +50,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import numpy as np
 
@@ -97,8 +100,21 @@ class Coolant:
     """Liquid coolant (50/50 water-glycol) shared along a channel.
 
     ASSUMPTIONS (all overridable): reference flow 0.05 g/s per cell (about
-    13 L/min for a 4,400-cell pack), h_ref at that flow, 20 kPa across the
-    module channels at that flow.
+    9.5 L/min for a 3,360-cell 96s35p pack), h_ref at that flow, 20 kPa across
+    the module channels at that flow.
+
+    Flow laws (v0.4.13). The module's channels are laminar: Reynolds numbers of
+    about 3-550 for any plausible number of cells per channel (ribbon ports
+    under 2 mm, plate channels 4 mm high). So:
+    * h grows weakly with flow. In a ribbon port the flow is fully developed
+      within a few cells (Nusselt number fixed, h independent of flow); in a
+      plate channel it is still developing over much of the length (Leveque:
+      h ~ flow^(1/3)). ``h_flow_exponent`` defaults to 0 for a ``SideRibbon``
+      and 1/3 for a ``BottomPlate``. (Up to v0.4.12: flow^0.8, Dittus-Boelter,
+      a turbulent law.)
+    * The pressure drop across the module channels is proportional to flow
+      (Hagen-Poiseuille); the rest of the loop (hoses at Re ~ 4,000) goes as
+      flow^2.
 
     Pump power covers the whole loop: the module channels plus the rest of the
     loop (hoses, manifolds, chiller and radiator), 30 kPa at the reference
@@ -122,6 +138,12 @@ class Coolant:
     dp_loop_ref_Pa: float = 30e3  # rest of the loop
     pump_efficiency: float = 0.3
     radiator_fan_W_per_W: float = 0.03
+    # None = set by the cooling topology (SideRibbon 0, BottomPlate 1/3); 1/3 if used alone.
+    h_flow_exponent: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.flow_g_s_per_cell <= 0:
+            raise ValueError("Coolant flow must be positive.")
 
     @property
     def mdot(self) -> float:
@@ -129,13 +151,15 @@ class Coolant:
 
     @property
     def h(self) -> float:
-        """Convective coefficient at this flow (Dittus-Boelter: h ~ flow^0.8)."""
-        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 0.8
+        """Convective coefficient at this flow (laminar: weak flow dependence)."""
+        n = 1.0 / 3.0 if self.h_flow_exponent is None else self.h_flow_exponent
+        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** n
 
     @property
     def pump_power_W_per_cell(self) -> float:
         """Electrical pump power per cell for the whole loop."""
-        dp = (self.dp_ref_Pa + self.dp_loop_ref_Pa) * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
+        f = self.flow_g_s_per_cell / self.flow_ref_g_s
+        dp = self.dp_ref_Pa * f + self.dp_loop_ref_Pa * f * f  # laminar channels, turbulent loop
         return self.mdot / self.rho * dp / self.pump_efficiency
 
     def rise_K(self, Q_W_per_cell: float) -> float:
@@ -219,18 +243,23 @@ class Interface:
 class AirFlow:
     """Forced air through the gaps between cans.
 
-    Flow is the design variable: it sets h on the can (h ~ flow^0.8), the air
-    temperature rise along the flow, and fan power ((flow/rho) dp / eta with
-    dp ~ flow^2). ASSUMPTIONS: h = 30 W/m^2K at 0.3 g/s of air per cell (about
-    2 m/s through a 2 mm x 70 mm gap per cell), 200 Pa pack pressure drop at
-    that flow, fan efficiency 0.3. ``track_rise=False`` ignores the air
-    temperature rise (every cell sees ambient air).
+    Flow is the design variable: it sets h on the can, the air temperature
+    rise along the flow, and fan power ((flow/rho) dp / eta). ASSUMPTIONS:
+    h = 30 W/m^2K at 0.3 g/s of air per cell (about 1.8 m/s through a 2 mm x
+    70 mm gap per cell), 200 Pa pack pressure drop at that flow, fan
+    efficiency 0.3. ``track_rise=False`` ignores the air temperature rise
+    (every cell sees ambient air).
 
-    The gap matters too (v0.4.12): at a fixed mass flow a narrower gap carries
-    faster air. In a narrow channel h ~ 1/gap (laminar, Nusselt number fixed
-    by geometry; also the turbulent result at fixed mass flow) and the
-    pressure drop ~ 1/gap^3, scaled from ``gap_ref_mm``. A ``Module`` sets
-    ``gap_mm`` from its layout.
+    The air crosses the array of cans, so it is cross-flow over a bank of
+    cylinders: Re about 1,200-5,000 on the can diameter over the flows and gaps
+    swept. In that range h ~ v^0.6 (Zukauskas, staggered tube banks) and the
+    pressure drop ~ v^1.8 (friction factor ~ Re^-0.2), with v the air speed in
+    the gap between cans, v ~ flow / gap. The gap scaling is taken from
+    ``gap_ref_mm``; a ``Module`` sets ``gap_mm`` from its layout. Note the
+    cans are closer than the correlation's usual range (pitch / diameter
+    about 1.1 against 1.25 and up), so treat h_ref as the calibration.
+    (v0.4.12 used h ~ flow^0.8 / gap and dp ~ flow^2 / gap^3; up to v0.4.11
+    the gap had no effect.)
     """
 
     flow_g_s_per_cell: float = 0.3
@@ -255,9 +284,17 @@ class AirFlow:
     def _gap_ratio(self) -> float:
         return self.gap_ref_mm / (self.gap_mm if self.gap_mm is not None else self.gap_ref_mm)
 
+    H_EXP: ClassVar[float] = 0.6  # Zukauskas, Re_D 1e3-2e5
+    DP_EXP: ClassVar[float] = 1.8
+
+    @property
+    def _speed_ratio(self) -> float:
+        """Air speed between the cans relative to the reference (flow / gap)."""
+        return self.flow_g_s_per_cell / self.flow_ref_g_s * self._gap_ratio
+
     @property
     def h(self) -> float:
-        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 0.8 * self._gap_ratio
+        return self.h_ref * self._speed_ratio**self.H_EXP
 
     @property
     def mdot(self) -> float:
@@ -265,7 +302,7 @@ class AirFlow:
 
     @property
     def pump_power_W_per_cell(self) -> float:
-        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2 * self._gap_ratio**3
+        dp = self.dp_ref_Pa * self._speed_ratio**self.DP_EXP
         return self.mdot / self.rho * dp / self.fan_efficiency
 
     def rise_K(self, Q_W_per_cell: float) -> float:
@@ -275,7 +312,7 @@ class AirFlow:
     def with_h(cls, h: float, **kw) -> AirFlow:
         """The air flow that gives convective coefficient ``h``."""
         ref = cls(**kw)
-        return cls(flow_g_s_per_cell=ref.flow_ref_g_s * (h / (ref.h_ref * ref._gap_ratio)) ** 1.25, **kw)
+        return cls(flow_g_s_per_cell=ref.flow_ref_g_s * (h / ref.h_ref) ** (1.0 / cls.H_EXP) / ref._gap_ratio, **kw)
 
 
 @dataclass(frozen=True)
@@ -321,6 +358,13 @@ class RibbonGeometry:
             raise ValueError("Ribbon thickness must exceed two walls.")
 
 
+def _set_h_exponent(cooling, n: float) -> None:
+    if cooling.coolant.h_flow_exponent is None:
+        from dataclasses import replace as _replace
+
+        object.__setattr__(cooling, "coolant", _replace(cooling.coolant, h_flow_exponent=n))
+
+
 @dataclass(frozen=True)
 class BottomPlate:
     coolant: Coolant = field(default_factory=Coolant)
@@ -331,6 +375,9 @@ class BottomPlate:
     plate: PlateGeometry = field(default_factory=PlateGeometry)
     name: str = "bottom plate"
 
+    def __post_init__(self) -> None:
+        _set_h_exponent(self, 1.0 / 3.0)  # developing laminar flow in a 4 mm channel
+
 
 @dataclass(frozen=True)
 class SideRibbon:
@@ -340,6 +387,9 @@ class SideRibbon:
     contact_fraction: float = 0.25
     tube: RibbonGeometry = field(default_factory=RibbonGeometry)
     name: str = "side ribbon"
+
+    def __post_init__(self) -> None:
+        _set_h_exponent(self, 0.0)  # fully developed laminar flow in sub-2 mm ports
 
     @property
     def min_gap_mm(self) -> float:
@@ -382,7 +432,7 @@ class Module:
 
             object.__setattr__(self, "cooling", _replace(self.cooling, gap_mm=self.layout.gap_mm))
         if isinstance(self.cooling, AirFlow) and self.filler is not None:
-            raise ValueError("AirFlow needs open gaps: use filler=None.")
+            raise ValueError("Forced air needs open gaps between the cans: use no filler (filler=None).")
         if isinstance(self.cooling, SideRibbon) and self.layout.gap_mm < self.cooling.min_gap_mm:
             raise ValueError(
                 f"A side ribbon needs at least {self.cooling.min_gap_mm:g} mm between cans "
@@ -756,6 +806,7 @@ __all__ = [
     "RibbonGeometry",
     "SideRibbon",
     "Wall",
+    "compare_modules",
     "coolant_holdup_kg",
     "module_mass_per_cell_kg",
     "module_params",
@@ -805,12 +856,23 @@ def compare_modules(
             out[f"T_peak_{pos}_C"] = r.T_peak_C
             out[f"dT_cell_{pos}_K"] = r.dT_cell_max
             if pos == "outlet":
-                out["coolant_rise_max_K"] = (
-                    float(r.T_coolant.max() - r.T_coolant[0]) if r.T_coolant is not None else 0.0
-                )
+                out["coolant_rise_max_K"] = _coolant_rise_max(r)
                 out["pump_mW_per_cell"] = 1e3 * r.pump_W_per_cell
                 out["filler_g_per_cell"] = 1e3 * module_mass_per_cell_kg(cell, m)
                 out["filler_mass_pct"] = 100 * module_mass_per_cell_kg(cell, m) / cell.mass
         out["cell_to_cell_K"] = out["T_peak_outlet_C"] - out["T_peak_inlet_C"]
         rows.append(out)
     return rows
+
+
+def _coolant_rise_max(r: ModuleResult) -> float:
+    """Largest coolant temperature above its inlet at this cell [K]."""
+    c = r.module.cooling
+    if r.T_coolant is None:
+        return 0.0
+    t = r.res.t
+    if isinstance(c, (BottomPlate, SideRibbon)):
+        T_in = np.array([c.coolant.inlet_K(x, r.T_ambient) for x in t])
+    else:
+        T_in = np.full(t.size, r.T_ambient)
+    return float(np.max(r.T_coolant - T_in))

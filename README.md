@@ -12,20 +12,20 @@ It answers questions like *"for this cell and this duty, should I use air, a col
 packtherm design M50 --duty roadtrip --t-env 35 --out-dir results/
 ```
 
-An LG M50 21700 pack (61 kWh, 96s35p) in a C-segment EV drives at 130 km/h from 90 % to 10 % charge on a 35 °C day, then rapid-charges at 0.7C to 80 %. Limits: peak 45 °C, 5 K inside the cell, ready again (back near ambient, PCM re-frozen) within 3 hours. **39 designs, 24 feasible** ([CSV](docs/examples/module_m50_roadtrip_130kmh_35c_designs.csv)):
+An LG M50 21700 pack (61 kWh, 96s35p) in a C-segment EV drives at 130 km/h from 90 % to 10 % charge on a 35 °C day, then rapid-charges at 0.7C to 80 %. Limits: peak 45 °C, 5 K inside the cell, ready again (back near ambient, PCM re-frozen) within 3 hours. **39 designs, 23 feasible** ([CSV](docs/examples/module_m50_roadtrip_130kmh_35c_designs.csv)):
 
 | Pick | Design | Hottest cell | Mass added | Fan, pump and chiller energy |
 |---|---|---|---|---|
-| Lightest | forced air, 0.15 g/s per cell | 39.8 °C | +1.8 % | 0.25 % of the energy moved |
-| Lowest energy | bottom cold plate, 0.02 g/s per cell | 40.6 °C | +8.2 % | 0.05 % |
-| Balanced | side ribbon, 0.02 g/s per cell, 3.5 mm gap | 39.4 °C | +7.2 % | 0.05 % |
+| Lightest | forced air, 0.15 g/s per cell | 39.5 °C | +1.8 % | 0.29 % of the energy moved |
+| Lowest energy | bottom cold plate, 0.02 g/s per cell | 40.4 °C | +8.2 % | 0.05 % |
+| Balanced | side ribbon, 0.02 g/s per cell, 3.5 mm gap | 39.2 °C | +7.2 % | 0.05 % |
 
 ![Road-trip trade-off](docs/examples/module_m50_roadtrip_130kmh_35c_tradeoff.png)
 
 **What it shows**
-- **Liquid cooling costs very little to run.** About 0.05 % of the energy moved, roughly half pump and half radiator fan, against 0.25 % for the lightest air design. The real choice is hardware mass against fan energy.
+- **Liquid cooling costs very little to run.** About 0.05 % of the energy moved, mostly the radiator fan (the pump itself is under a fifth), against 0.29 % for the lightest air design. The real choice is hardware mass against fan energy.
 - **A PCM that melts below ambient is a liability.** At 35 °C, RT31 (melting at 31 °C) never re-freezes, so every RT31 design without a chiller fails on recovery. RT42 still works.
-- **A chiller holds every cell at 35 °C** but costs 1.1–2.1 % of the energy moved, 20–40 times a liquid loop without one. Its COP falls with ambient (about 3.0 at 35 °C), and heat leaking in from the hot day is charged to it.
+- **A chiller holds every cell at 35 °C** but costs 1.2–2.1 % of the energy moved, 20–40 times the cheapest liquid design without one. Its COP falls with ambient (about 3.0 at 35 °C), and heat leaking in from the hot day is charged to it.
 - **An uncooled pack reaches 55 °C.** Inside a pack, an interior cell has nowhere to shed heat, so "natural cooling" does not exist.
 
 The same study on three back-to-back WLTC cycles ([chart](docs/examples/module_m50_wltc3_35c_tradeoff.png)) keeps every cooled design within 0.4 K of the 35 °C ambient, and even a sealed pack peaks at 36 °C: a 61 kWh pack sees mild C-rates on urban driving. **Thermal design is driven by motorway driving and rapid charging.**
@@ -48,14 +48,14 @@ LG M50 at a 1.5C full discharge, 25 °C, hex packing, 0.05 g/s coolant per cell 
 |---|---|---|---|---|---|---|
 | none | air | 68.5 °C | 68.5 °C | 0 K | 0 K | 0 |
 | forced air, 2 mm gap | air | 41.0 °C | 44.2 °C | 3.2 K | 1.5 K | 169 mW |
-| bottom plate | air | 41.5 °C | 46.6 °C | 5.1 K | **5.8 K** | 7.9 mW |
-| bottom plate | RT42-EG | 39.4 °C | 41.8 °C | 2.4 K | 5.2 K | 7.9 mW |
-| side ribbon, 3.5 mm gap | air | **33.0 °C** | 41.1 °C | 8.1 K | 3.3 K | 7.9 mW |
+| bottom plate | air | 41.5 °C | 46.6 °C | 5.1 K | **6.1 K** | 7.9 mW |
+| bottom plate | RT42-EG | 39.4 °C | 41.8 °C | 2.4 K | 5.4 K | 7.9 mW |
+| side ribbon, 3.5 mm gap | air | **33.0 °C** | 41.1 °C | 8.1 K | 3.4 K | 7.9 mW |
 | side ribbon, 3.5 mm gap | RT31 | 32.3 °C | **36.1 °C** | 3.7 K | 3.5 K | 7.9 mW |
 
-- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon runs about 8 K cooler at the inlet while touching a quarter of the can, and its in-cell spread is 3.3 K against 5.8 K. Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
+- **Side ribbon vs bottom plate for a 70 mm cell:** the ribbon runs about 8 K cooler at the inlet while touching a quarter of the can, and its in-cell spread is 3.4 K against 6.1 K. Pulling heat down the full height of the winding is slow, which is why tall cylindrical cells are usually side-cooled.
 - **The coolant warms up to 11 K along the channel** at this flow, so the outlet cell runs up to 8 K hotter than the inlet cell. PCM in the gaps more than halves that spread (8.1 → 3.7 K).
-- **More flow buys little:** on the road trip, tripling the coolant flow lowers the hottest cell by about 1 K for 27 times the pump power.
+- **More flow buys little:** the channels are laminar, so extra flow barely improves heat transfer at the can; it mostly cuts how much the coolant warms. On the road trip, tripling the flow lowers the hottest cell by 0.8–1.0 K for 20 times the pump power.
 
 ## Validation
 
@@ -75,7 +75,7 @@ Method, per-test results and known gaps: [docs/VALIDATION.md](docs/VALIDATION.md
 
 - **Cells:** electro-thermal heat from current (equivalent circuit with Butler–Volmer kinetics and a slow branch, temperature- and SOC-dependent, with entropic heat where the cell has data), coulomb-counted SOC, voltage cut-off and CC-CV charging. Library: Panasonic NCR18650PF (measured), LG M50 (derived), LG MJ1 (lumped resistance); `packtherm cells` lists them.
 - **Module:** one cell's share of a hex or square array. Gap filler: air, PCM (RT31, RT42 and others) or PCM + expanded graphite. Cooling: forced air through the gaps, a bottom cold plate (2D, radius × height) or a side ribbon (2D, radius × angle). The coolant warms along the channel with its own thermal mass. Every design is judged on four cells: interior and on the module wall, at the coolant inlet and outlet.
-- **Energy:** fan and pump power from flow and pressure drop over the whole loop, the radiator fan, and chiller electricity with an ambient-dependent COP and heat leak.
+- **Energy:** fan and pump power from flow and pressure drop over the whole loop (laminar coolant channels, cross-flow air over the cans), the radiator fan, and chiller electricity with an ambient-dependent COP and heat leak.
 - **Mass:** filler plus cooling hardware built up from sourced dimensions (plate sheets and channels, ribbon walls and ribs, bond lines, pack-level loop, fans and chiller).
 - **Duties:** constant C-rate, a road trip (motorway then rapid charge), WLTC Class 3b through a road-load model, or a current CSV.
 - **Picks:** the trade-off front of feasible designs, re-checked at worst-case resistance (the published maximum plus a 20 % ageing margin), with designs that fail reported and dropped.
@@ -110,10 +110,28 @@ A module study of about 40 designs takes a few minutes; `packtherm design --help
 
 | Version | Scope |
 |---|---|
-| **v0.4.12** (current) | Audit fixes; this README; 2D field and validation figures |
-| v0.5 | Product release: web app and API, licence |
+| **v0.1** | Python port of the MATLAB thesis solver, parity tests, CI |
+| **v0.2** | Electro-thermal heat generation, cell library (M50 21700, MJ1 18650), enthalpy-Newton solver, datasheet limit checks |
+| **v0.3** | Design advisor: cooling × PCM sweep, feasibility (peak, ΔT, recovery), Pareto front, three picks, worst-case-resistance re-check, trade-off chart |
+| **v0.3.1** | Continuous h with fan-law power, chiller, PCM grade library, WLTC and road-trip EV duties, iterative robustness, 2.6× faster solver |
+| **v0.3.2** | Validation against measured temperatures (48 blind tests, 25 to −20 °C); equivalent-circuit electrical model with Butler–Volmer kinetics, voltage cut-off and CC-CV charging; validated Panasonic NCR18650PF cell |
+| **v0.4** | Module level: packed unit cell (hex/square), air / PCM / composite-PCM filler, forced air, bottom plate, side ribbon, coolant rise with inlet/outlet cells, pump and fan power from flow |
+| **v0.4.1** | Design advisor on the module model: flow, topology, filler and gap as design variables with physical pump/fan energy |
+| **v0.4.2** | Rename to PackTherm, new model picture, housekeeping |
+| **v0.4.3** | Cooling hardware mass from sourced geometry; ribbon gap and height coverage |
+| **v0.4.4** | Chiller accounting: ambient-dependent COP, heat leak, chiller during the event only |
+| **v0.4.5** | Whole-loop pump power and radiator fan energy |
+| **v0.4.6** | Edge cells on the module wall, in the model and the advisor |
+| **v0.4.7** | Coolant thermal mass in the channel |
+| **v0.4.8** | 2D (radius × height) bottom-plate model |
+| **v0.4.9** | Side ribbon on a strip of the can (radius × angle model) |
+| **v0.4.10** | Cold-weather cell model: temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
+| **v0.4.11** | LG M50 equivalent circuit derived from a physics model (PyBaMM + ORegan2022); worst-case checks scale every loss term |
+| **v0.4.12** | Audit: crash and message fixes, air cooling depends on the gap, rebuilt README, 2D field and validation figures |
+| **v0.4.13** (current) | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
+| v0.5 (next) | Product release: web app and API, licence |
 
-Every earlier version, with its results at the time, is in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
+Results from earlier versions, as they stood at the time, are in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
 

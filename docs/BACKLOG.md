@@ -1,6 +1,6 @@
 # Known issues and improvement backlog
 
-Open items as of v0.4.12, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
+Open items as of v0.4.13, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Cell model
 1. **LG M50 circuit is derived, not measured.** It comes from PyBaMM's DFN with the ORegan2022 parameter set and matches that model's heat within 0.94–1.13× ([VALIDATION.md](VALIDATION.md#lg-m50-checked-against-a-physics-model-not-measured)), but no measured M50 temperatures check it. The Warwick M50 core-temperature data (Mendeley bf6fksxpp2) would; it is not reachable from this build. Its cold voltage knee arrives late (cut-off up to 0.75 Ah after the DFN at 0 °C, 1.4C).
@@ -11,7 +11,7 @@ Open items as of v0.4.12, ranked within each group by how much they could change
 
 ## Module model
 6. **Roll-end-to-can resistance** (5e-4 m²K/W) dominates bottom-plate cooling and is the least certain value. A teardown or a bottom-cooling test would pin it down.
-7. **Reference flows and pressure drops are typical values, not a specific pack:** coolant 0.05 g/s per cell, h_ref 1500 W/m²K, module Δp 20 kPa plus loop 30 kPa, pump efficiency 0.3; air flow, h and Δp at a 2 mm reference gap (scaled with the gap since v0.4.12).
+7. **Reference flows and pressure drops are typical values, not a specific pack:** coolant 0.05 g/s per cell, h_ref 1500 W/m²K, module Δp 20 kPa plus loop 30 kPa, pump efficiency 0.3; air 0.3 g/s, h 30 W/m²K and Δp 200 Pa at a 2 mm gap. Only the scaling away from these points is physics (since v0.4.13: laminar coolant channels, cross-flow over the cans for air). The air correlation is used below its usual pitch range (pitch/diameter 1.1 against ≥ 1.25), and the ribbon's h_ref is not tied to its port geometry.
 8. **2D slices, not a 3D field.** The plate is solved in radius × height and the ribbon in radius × angle, separately. The ribbon displaces filler near the strip, but the angle model fills the full annulus.
 9. **Coolant holdup is one lump per cell**, not a transport delay, so a sharp inlet step arrives smeared rather than delayed.
 10. **Edge cells use an assumed wall** (U = 5 W/m²K over 1/3 of the share). With air gaps the wall is applied at the can, which slightly overstates the edge path. The chiller's heat leak and the edge wall are separate estimates of the same physics, and the leak is charged to the chiller but does not warm the cells.
@@ -54,3 +54,4 @@ Open items as of v0.4.12, ranked within each group by how much they could change
 | v0.4.10 | Cold-weather temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
 | v0.4.11 | LG M50 circuit derived from the DFN; worst-case re-check scales every loss term |
 | v0.4.12 | Audit: duplicate-design crash, contradictory messages, CLI header and flags, air cooling now depends on the gap |
+| v0.4.13 | Physics audit: laminar coolant and cross-flow air laws, in-cell spread on the cooled face, per-phase datasheet temperature checks, datasheet limits as currents, MJ1 charge limits, CLI input checks |

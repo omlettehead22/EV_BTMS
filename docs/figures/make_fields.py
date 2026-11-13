@@ -95,7 +95,7 @@ def main() -> Path:
         cb.outline.set_visible(False)
         top, base = T[: np.searchsorted(r, r_cell), -1].max(), T[: np.searchsorted(r, r_cell), 0].min()
         ax.text(r_cell * 0.5, L - 4, f"top {top:.1f} °C", ha="center", va="top", fontsize=8.5, color="white")
-        ax.text(r_cell * 0.5, 4, f"base {base:.1f} °C", ha="center", va="bottom", fontsize=8.5, color=TEXT)
+        ax.text(r_cell * 0.5, 4, f"bottom layer {base:.1f} °C", ha="center", va="bottom", fontsize=8.5, color=TEXT)
 
     rz_panel(fig.add_subplot(gs[0]), A, "A  Bottom plate, at peak", "1.5C at 25 °C, outlet cell", tA)
     rz_panel(

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.13
+
+A physics and minor-bug audit: every model file read against its physics, numerical convergence checked, and every CLI option tried with bad input.
+
+- **Changed: coolant flow laws.** The module's coolant channels are laminar (Reynolds number about 3–550 for any plausible number of cells per channel; ribbon ports under 2 mm, plate channels 4 mm high). Up to v0.4.12 they used turbulent laws (h ∝ flow^0.8, Δp ∝ flow²).
+  - h now depends only weakly on flow. Ribbon ports are fully developed within a few cells, so their h doesn't depend on flow. Plate channels are still developing (Lévêque): h ∝ flow^1/3. The exponent is set by `Coolant.h_flow_exponent`; the default comes from the cooling layout.
+  - Pressure drop across the module channels ∝ flow (Hagen–Poiseuille); the rest of the loop (hoses, Re ≈ 4,000) stays ∝ flow².
+  - Results at the 0.05 g/s reference flow are unchanged.
+- **Changed: air flow laws.** The air crosses the array of cans, so it is cross-flow over a bank of cylinders (Re ≈ 1,200–5,000 on the can diameter). h ∝ v^0.6 (Žukauskas, staggered banks) and Δp ∝ v^1.8, with v ∝ flow / gap. This replaces h ∝ flow^0.8 / gap and Δp ∝ flow² / gap³ (v0.4.12). Results at 0.3 g/s and a 2 mm gap are unchanged.
+- **Fixed: in-cell spread of plate designs was about 0.4 K low.** The coolest point was taken at the centre of the bottom layer, half a layer above the cooled face, so the spread depended on the grid: 5.35 / 5.75 / 5.95 K at 8 / 16 / 32 layers for the M50 at 1.5C. It is now taken on the roll's base face (and on the cooled can face for ribbons) and gives 6.14 K at every grid. The 2D model now matches the exact solution within 1 % (test tightened from 3 %).
+- **Fixed: datasheet temperature warnings** compared the whole run's peak with the charging limit. A hot discharge followed by a cooler charge was reported as a charging breach. Each limit is now judged on the peak while that kind of current flows. The design studies' own limits were not affected.
+- **Fixed: datasheet current limits.**
+  - The Panasonic NCR18650PF's 10 A discharge and 1,375 mA charge limits were written as C-rates against the 2.9 Ah rating, but the model converts with this cell's measured 2.995 Ah, so they allowed 10.3 A and 1.50 A. They are now exact currents.
+  - The LG MJ1 had no charge limits; it now has the product specification's 3.4 A and 45 °C.
+- **Fixed: CLI input.**
+  - Every numeric option is checked when parsed (flows, C-rates, cycles and margins > 0; SOC 0–1; ribbon contact (0, 1]). For example, `--c-rate 0` crashed and `--cycles 0` or `--r-margin -2` ran a full study.
+  - Unknown cells, fillers and topologies, and invalid combinations, give a one-line error instead of a traceback.
+- **Fixed, smaller:**
+  - `compare_modules` measured the coolant rise from its first-step temperature rather than the inlet. That understated it whenever the coolant warmed in the first step, as chilled coolant does (4.4 K reported against 8.4 K for a 15 °C inlet at 1C).
+  - "1 module designs" now reads "1 module design".
+  - The PF road-trip name showed "0.459098C".
+  - The forced-air error message used API wording.
+  - The Coolant docstring said 13 L/min for a 4,400-cell pack; the example pack is 3,360 cells at 9.5 L/min.
+  - The module advisor's docstring still described scoring on the outlet cell with an axial estimate.
+  - `compare_modules` was missing from `packtherm.module.__all__`.
+- **Checked, no change:**
+  - Energy balance closes to 1e-11 in every layout.
+  - A 2 s step is within 0.07 K of 0.5 s.
+  - Ribbon angle grid converged (12 vs 24 slices: 0.01 K).
+  - RT42 data-sheet values; M50 stoichiometry windows (the parameter set's initial state, a 4.2 V full charge; PyBaMM's own calculation assumes 4.4 V); chiller COP law; road-load power at 130 km/h (0.45C).
+- **Effect on the examples.** M50 road trip at 35 °C: same three picks (air 39.5 °C, plate 40.4 °C, ribbon 39.2 °C); 23 of 39 designs feasible (was 24). A chilled plate at 0.05 g/s now fails on in-cell spread (5.3 K), as does a 0.05 g/s plate with RT42 at 1.5C (5.1 K).
+- Docs: the README roadmap lists every version from v0.1. The README module table shows the corrected spreads (plate 6.1 K) and the flow finding (tripling the flow buys 0.8–1.0 K for 20× the pump power). BACKLOG is updated.
+
 ## 0.4.12
 
 An audit of every documented command, message and claim, plus the documentation rebuilt around the module tool.

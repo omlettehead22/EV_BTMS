@@ -173,7 +173,7 @@ def road_trip_duty(
     t_chg = 3600.0 * (soc_charged - soc_arrive) / c_chg
     return DutyCycle(
         name=(
-            f"{speed_kmh:g} km/h {soc_start:.0%}→{soc_arrive:.0%}, then {c_chg:g}C charge to {soc_charged:.0%} "
+            f"{speed_kmh:g} km/h {soc_start:.0%}→{soc_arrive:.0%}, then {c_chg:.2g}C charge to {soc_charged:.0%} "
             f"({pack.n_series}s{pack.n_parallel}p)"
         ),
         steps=((round(t_drive), c_drive), (round(t_chg), -c_chg)),
