@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.3
+
+The HTTP API, the fourth v0.5 mini update: run studies over HTTP, for programs and for the web app to come.
+
+- **New: `packtherm.api`** (FastAPI). Install with `pip install "packtherm[api]"`, start with `packtherm serve` or the new Docker image.
+  - `POST /studies` queues a study (the study-file format, as JSON) and returns its id.
+  - `GET /studies/{id}` gives state, progress (designs done out of total, then the worst-case re-check), time remaining and queue position.
+  - `GET /studies/{id}/results`, `/designs.csv` and `/chart.png` fetch the outputs. `DELETE` cancels a study or deletes its results.
+  - Also `GET /cells`, `POST /cells/check`, `GET /schema`, `/template`, `/limits` and `/health`, with interactive docs at `/docs`.
+  - Details in `docs/API.md`.
+- **Same results:** a study through the API gives exactly the results `packtherm run` writes for it (test).
+- **Jobs.**
+  - Each study runs in its own process, so a time limit or a cancel stops it cleanly and a crash can't affect another.
+  - There's no database: each job is a folder, deleted 24 hours after it finishes.
+  - A restart fails unfinished studies and keeps finished ones.
+- **Limits** for a public server, all settable by environment variables: designs per study (120 fast, 40 normal), simulated time (24 h), duty segments, run time (15 min), 10 studies per visitor per hour, request size (256 kB), 2 running and 20 queued. **API keys** (`PACKTHERM_API_KEYS`, `X-API-Key` header) skip the per-study limits, the time limit and the rate limit.
+- **New: `GET /schema`**, the study format as data: types, defaults, choices and bounds, taken from the same rules that validate studies. The web app will build its forms from it. (`packtherm.study.schema()`; the validation rules now carry their bounds.)
+- **New: progress reporting.** `run_module_study(progress=...)` and `StudySpec.run(progress=...)`.
+- **New: example studies re-run in CI** (`tests/test_examples_rerun.py`). The three examples run in fast mode and must match their committed results: the same verdicts and picks, peaks and spreads within 0.3 K, recovery within 3 min, energy within 2 %. A model change that moves a result now fails CI until the examples are regenerated. About 1½ minutes.
+- **CI:** a new job builds the Docker image, starts it and runs a study through the API.
+- `packtherm serve`; `Dockerfile` (non-root, health check); `api` extra (FastAPI, Uvicorn).
+
 ## 0.5.2
 
 User-defined cells, the third v0.5 mini update: describe your own cylindrical cell from its datasheet and run every study on it.

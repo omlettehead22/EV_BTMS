@@ -44,23 +44,47 @@ class StudyError(ValueError):
 # ---------------------------------------------------------------------------
 
 
+def _rule(**info):
+    """Attach a machine-readable description to a check (used by ``schema()``)."""
+
+    def wrap(check):
+        check.info = info
+        return check
+
+    return wrap
+
+
+@_rule(min=0, exclusive=True)
 def _pos(x):
     return None if x > 0 else "must be > 0"
 
 
+@_rule(min=0)
 def _nonneg(x):
     return None if x >= 0 else "must be >= 0"
 
 
+@_rule(min=0, max=1)
 def _fraction(x):
     return None if 0 <= x <= 1 else "must be between 0 and 1"
 
 
 def _choice(*opts):
+    @_rule(choices=list(opts))
     def check(x):
         return None if x in opts else f"must be one of: {', '.join(map(str, opts))}"
 
     return check
+
+
+def _optional(check):
+    """The same check, with null allowed."""
+
+    @_rule(**getattr(check, "info", {}))
+    def opt(x):
+        return None if x is None else check(x)
+
+    return opt
 
 
 NUM = (int, float)
@@ -71,14 +95,14 @@ DUTY_KEYS = {
     # constant
     "c_rate": (NUM, 1.0, _pos),
     "direction": (str, "discharge", _choice("discharge", "charge")),
-    "soc0": (OPT_NUM, None, lambda x: None if x is None else _fraction(x)),
+    "soc0": (OPT_NUM, None, _optional(_fraction)),
     "soc_min": (NUM, 0.0, _fraction),
     "soc_max": (NUM, 1.0, _fraction),
     # wltc
     "cycles": (int, 3, _pos),
     # roadtrip
     "speed_kmh": (NUM, 130.0, _pos),
-    "charge_c_rate": (OPT_NUM, None, lambda x: None if x is None else _pos(x)),
+    "charge_c_rate": (OPT_NUM, None, _optional(_pos)),
     # EV duties
     "pack_kWh": (NUM, 60.0, _pos),
     "pack_V": (NUM, 350.0, _pos),
@@ -99,8 +123,8 @@ DUTY_USES = {
 REQ_KEYS = {
     "T_max_C": (OPT_NUM, None, None),  # None: min(45, datasheet)
     "dT_cell_max_C": (NUM, 5.0, _pos),
-    "recovery_max_min": (OPT_NUM, None, lambda x: None if x is None else _nonneg(x)),
-    "cell_to_cell_max_K": (OPT_NUM, None, lambda x: None if x is None else _pos(x)),
+    "recovery_max_min": (OPT_NUM, None, _optional(_nonneg)),
+    "cell_to_cell_max_K": (OPT_NUM, None, _optional(_pos)),
 }
 
 SPACE_KEYS = {
@@ -125,7 +149,7 @@ OPTION_KEYS = {
     "edge_cells": (bool, True, None),
     "wall_U": (NUM, 5.0, _nonneg),
     "r_margin": (NUM, 0.2, _nonneg),
-    "chiller_cop": (OPT_NUM, None, lambda x: None if x is None else _pos(x)),
+    "chiller_cop": (OPT_NUM, None, _optional(_pos)),
     "chiller_runs": (str, "event", _choice("event", "always")),
     "liquid_loop_kg": (NUM, 3.0, _nonneg),
     "air_system_kg": (NUM, 4.0, _nonneg),
@@ -295,6 +319,67 @@ def _check_steps(steps, errors: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Machine-readable description of the format (the web app builds forms from it)
+# ---------------------------------------------------------------------------
+
+
+def _type_names(types) -> list[str]:
+    ts = types if isinstance(types, tuple) else (types,)
+    names = {int: "integer", float: "number", str: "string", list: "list", bool: "boolean", dict: "object"}
+    out = [names[t] for t in ts if t is not type(None)]
+    if "number" in out:
+        out = [t for t in out if t != "integer"]
+    return out + (["null"] if type(None) in ts else [])
+
+
+def _describe(keys: dict) -> dict:
+    out = {}
+    for k, (types, default, check) in keys.items():
+        d = {"type": _type_names(types), "default": default}
+        d.update(getattr(check, "info", {}) if check else {})
+        out[k] = d
+    return out
+
+
+def schema() -> dict:
+    """The study format as data: every key's type, default and allowed values.
+
+    ``required`` lists the keys without a default; ``duty.uses`` says which
+    duty keys each duty type reads; ``design_space.items`` describes list items;
+    ``cell`` describes an inline user-defined cell; ``library`` lists the cells
+    and filler grades that names may refer to.
+    """
+    from .cells import CELLS as CELL_LIBRARY
+    from .materials import PCM_LIBRARY
+    from .user_cells import CELL_KEYS, FORMATS, REQUIRED
+
+    top = _describe(TOP_KEYS)
+    top["cell"]["type"] = ["string", "object"]
+    space = _describe(SPACE_KEYS)
+    for k, (types, check) in SPACE_ITEMS.items():
+        space[k]["items"] = {"type": _type_names(types), **(getattr(check, "info", {}) if check else {})}
+    space["fillers"]["items"]["choices"] = ["none", *PCM_LIBRARY]
+    return {
+        "packtherm_study": FORMAT_VERSION,
+        "required": ["packtherm_study", "cell", "duty.type"],
+        "top": top,
+        "duty": {"keys": _describe(DUTY_KEYS), "uses": {t: sorted(u | {"rest_h"}) for t, u in DUTY_USES.items()}},
+        "requirements": _describe(REQ_KEYS),
+        "design_space": space,
+        "options": _describe(OPTION_KEYS),
+        "cell": {
+            "keys": _describe(CELL_KEYS),
+            "required": list(REQUIRED),
+            "formats_mm": {k: {"diameter": d, "height": h} for k, (d, h) in FORMATS.items()},
+        },
+        "library": {
+            "cells": {k: {"name": c.name, "model": c.model_label} for k, c in CELL_LIBRARY.items()},
+            "fillers": list(PCM_LIBRARY),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Loading and building
 # ---------------------------------------------------------------------------
 
@@ -435,12 +520,13 @@ class StudySpec:
         c = self.spec["cell"]
         return [] if isinstance(c, str) else validate_cell(c, "cell.")[1]
 
-    def run(self, workers: int | None = None) -> StudyRun:
+    def run(self, workers: int | None = None, progress=None) -> StudyRun:
+        """Run the study. progress(stage, done, total) is called as designs finish."""
         from .module_design import run_module_study
 
         study = self.build()
         t0 = time.perf_counter()
-        result = run_module_study(study, workers=workers)
+        result = run_module_study(study, workers=workers, progress=progress)
         return StudyRun(self, study, result, time.perf_counter() - t0)
 
 

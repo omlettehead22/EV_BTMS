@@ -120,6 +120,22 @@ def _cell_file(path: str) -> None:
     print("Lumped resistance from datasheet values, no voltage model: less accurate than the validated cells.")
 
 
+def _serve(args) -> None:
+    import os
+
+    try:
+        import uvicorn
+
+        from .api import create_app
+    except ImportError as e:
+        raise ValueError(
+            f"the API needs its extra dependencies: pip install 'packtherm[api]' ({e.name} missing)"
+        ) from None
+    port = args.port or int(os.environ.get("PORT", "8000"))
+    # One process: the job queue lives in it (each study runs in its own worker process).
+    uvicorn.run(create_app(), host=args.host, port=port, workers=1)
+
+
 def _cells(args) -> None:
     if args.file:
         _cell_file(args.file)
@@ -434,6 +450,11 @@ def parser() -> argparse.ArgumentParser:
     t = sub.add_parser("thesis", help="Run the four MSc thesis scenarios.")
     t.add_argument("--out", type=Path, help="Write summary CSV here.")
     t.set_defaults(func=_thesis)
+
+    sv = sub.add_parser("serve", help="Run the HTTP API (needs: pip install packtherm[api]).")
+    sv.add_argument("--host", default="127.0.0.1", help="address to listen on (0.0.0.0 for all)")
+    sv.add_argument("--port", type=POS_INT, default=None, help="port (default: $PORT, or 8000)")
+    sv.set_defaults(func=_serve)
 
     c = sub.add_parser("cells", help="List the cell library, or show a user-defined cell file.")
     c.add_argument("file", nargs="?", help="a cell file (.yaml or .json) to check and show")

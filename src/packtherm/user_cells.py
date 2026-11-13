@@ -53,33 +53,31 @@ class CellError(ValueError):
     """A cell definition that cannot be used; the message lists every problem."""
 
 
-def _pos(x):
-    return None if x > 0 else "must be > 0"
-
+from .study import _nonneg, _optional, _pos, _rule
 
 NUM = (int, float)
 OPT_NUM = (int, float, type(None))
+_opt_pos = _optional(_pos)
 
 
-def _opt_pos(x):
-    return None if x is None else _pos(x)
+@_rule(choices=list(FORMATS))
+def _format(x):
+    """A format name; YAML reads an unquoted 21700 as a number, so numbers count too."""
+    return None if x is None or str(x) in FORMATS else f"must be one of: {', '.join(FORMATS)}"
+
+
+@_rule(choices=list(CHEMISTRIES))
+def _chemistry(x):
+    return None if x.upper() in CHEMISTRIES else f"must be one of: {', '.join(CHEMISTRIES)}"
 
 
 CELL_KEYS = {
     "name": (str, None, None),
     # (int, str): YAML reads an unquoted 21700 as a number
-    "format": (
-        (str, int, type(None)),
-        None,
-        lambda x: None if x is None or str(x) in FORMATS else f"must be one of: {', '.join(FORMATS)}",
-    ),
+    "format": ((str, int, type(None)), None, _format),
     "diameter_mm": (OPT_NUM, None, _opt_pos),
     "height_mm": (OPT_NUM, None, _opt_pos),
-    "chemistry": (
-        str,
-        "NMC",
-        lambda x: None if x.upper() in CHEMISTRIES else f"must be one of: {', '.join(CHEMISTRIES)}",
-    ),
+    "chemistry": (str, "NMC", _chemistry),
     "capacity_Ah": (NUM, None, _pos),
     "V_nominal": (NUM, None, _pos),
     "mass_g": (NUM, None, _pos),
@@ -93,7 +91,7 @@ CELL_KEYS = {
     "cp_J_kgK": (OPT_NUM, None, _opt_pos),
     "k_radial_W_mK": (OPT_NUM, None, _opt_pos),
     "k_axial_W_mK": (OPT_NUM, None, _opt_pos),
-    "Ea_kJ_mol": (OPT_NUM, None, lambda x: None if x is None or x >= 0 else "must be >= 0"),
+    "Ea_kJ_mol": (OPT_NUM, None, _optional(_nonneg)),
     "entropic": (bool, True, None),
     "source": ((str, type(None)), None, None),
 }
@@ -252,3 +250,27 @@ def from_datasheet(**values) -> Cell:
     """A user-defined cell from keyword arguments, e.g. ``from_datasheet(name=..., format="21700", ...)``."""
     spec, _ = validate_cell(values)
     return cell_from_spec(spec)
+
+
+def cell_summary(spec: dict) -> dict:
+    """What PackTherm derives from a validated definition (``packtherm cells my_cell.yaml`` as data)."""
+    c = cell_from_spec(spec)
+    wh = c.capacity_Ah * c.V_nominal
+    return {
+        "name": c.name,
+        "model": c.model_label,
+        "diameter_mm": c.diameter * 1e3,
+        "height_mm": c.height * 1e3,
+        "energy_Wh": wh,
+        "energy_density_Wh_L": wh / (c.volume * 1e3),
+        "specific_energy_Wh_kg": wh / c.mass,
+        "density_g_cm3": c.density / 1e3,
+        "DCIR_worst_case_mOhm": c.R0_range[1] * 1e3,
+        "resistance_rise_at_0C": math.exp(c.Ea_R / 8.314462618 * (1 / 273.15 - 1 / 298.15)),
+        "cp_J_kgK": c.cp,
+        "k_radial_W_mK": c.k_radial,
+        "k_axial_W_mK": c.k_axial,
+        "entropic_heat": spec["entropic"] and spec["chemistry"] == "NMC",
+        "max_charge_C": c.max_charge_C,
+        "max_discharge_C": c.max_discharge_C,
+    }

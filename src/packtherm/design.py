@@ -370,12 +370,26 @@ def _evaluate_args(args):
     return evaluate_design(*args)
 
 
-def _map(fn, jobs: list, workers: int | None):
+def _map(fn, jobs: list, workers: int | None, progress=None):
+    """fn over jobs, in worker processes when there are several; results in order.
+
+    progress(done, total), if given, is called after each job finishes.
+    """
     workers = workers if workers is not None else min(len(jobs), os.cpu_count() or 1)
+    out = []
     if workers <= 1 or len(jobs) <= 1:
-        return [fn(j) for j in jobs]
+        for j in jobs:
+            out.append(fn(j))
+            if progress:
+                progress(len(out), len(jobs))
+        return out
+    chunk = 1 if progress else max(1, len(jobs) // (4 * workers))
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(fn, jobs, chunksize=max(1, len(jobs) // (4 * workers))))
+        for r in ex.map(fn, jobs, chunksize=chunk):
+            out.append(r)
+            if progress:
+                progress(len(out), len(jobs))
+    return out
 
 
 def pareto_mask(cost_a: np.ndarray, cost_b: np.ndarray) -> np.ndarray:

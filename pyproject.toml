@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packtherm"
-version = "0.5.2"
+version = "0.5.3"
 description = "Battery thermal management design toolkit for cylindrical-cell EV packs: electro-thermal cells, packed-module model, cooling design advisor"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "scipy>=1.10", "pandas>=2.0", "matplotlib>=3.7", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.4"]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=7", "ruff>=0.4", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 
 [project.urls]
 Repository = "https://github.com/omlettehead22/packtherm"

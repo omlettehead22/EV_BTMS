@@ -1,6 +1,6 @@
 # Known issues and improvement backlog
 
-Open items as of v0.5.2, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
+Open items as of v0.5.3, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Cell model
 1. **LG M50 circuit is derived, not measured.** It comes from PyBaMM's DFN with the ORegan2022 parameter set and matches that model's heat within 0.94–1.13× ([VALIDATION.md](VALIDATION.md#lg-m50-checked-against-a-physics-model-not-measured)), but no measured M50 temperatures check it. The Warwick M50 core-temperature data (Mendeley bf6fksxpp2) would; it is not reachable from this build. Its cold voltage knee arrives late (cut-off up to 0.75 Ah after the DFN at 0 °C, 1.4C).
@@ -32,9 +32,9 @@ Open items as of v0.5.2, ranked within each group by how much they could change 
 21. **Assumption registry.** Since v0.5.1 a results JSON carries the main assumptions (reference flows and pressure drops, efficiencies, chiller, wall, pack parts, resolution). Not yet: the cell-model and material values, and the CSV on its own carries none.
 
 ## Engineering
-22. **Regression tests that re-run the example studies** against their stored results (v0.5.1 checks the README against the stored results, but CI does not re-run the studies; fast mode could make that affordable).
+22. **API at scale.** One server process holds the job queue in memory, results are files kept 24 h, and the rate limit is per process. Several servers, or results that survive longer, would need a shared queue and store (e.g. Redis and object storage). Fine for one public instance.
 23. Publish to PyPI, add versioned docs.
-24. **Licence:** decided at v0.5.
+24. **Licence: on hold.** No licence for now (all rights reserved by default), which keeps the option of going proprietary. Needed before publishing to PyPI.
 
 ## Resolved log
 
@@ -58,3 +58,4 @@ Open items as of v0.5.2, ranked within each group by how much they could change 
 | v0.5.0 | Fast mode (about 5×); exact region volumes on every mesh; faster electrical model |
 | v0.5.1 | Study files and results JSON; README numbers checked against the examples in CI |
 | v0.5.2 | User-defined cylindrical cells (NMC/NCA) from datasheet values |
+| v0.5.3 | HTTP API; example studies re-run in CI |
