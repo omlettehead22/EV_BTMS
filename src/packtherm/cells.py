@@ -125,6 +125,44 @@ def nmc811_graphite_dUdT(soc: float) -> float:
     return dU_pos - dU_neg
 
 
+# LFP/graphite cylindrical cells (v0.5.4), from measurements on whole cells.
+# [Steinhardt2022] M. Steinhardt et al., "Meta-analysis of experimental results for heat capacity and
+#   thermal conductivity in lithium-ion batteries: A critical review", J. Power Sources 522 (2022) 230829.
+# [Drake2014] S.J. Drake et al., "Measurement of anisotropic thermophysical properties of cylindrical
+#   Li-ion cells", J. Power Sources 252 (2014) 298-304 (26650 and 18650 LFP).
+# Heat capacity: mean of the cylindrical LFP entries in [Steinhardt2022] Table 6 without the two taken at
+#   100 % SOC ([Drake2014]: 1605, 1720): about 1100 J/kg K (range 998-1720).
+# Radial: median of the cylindrical LFP entries in [Steinhardt2022] Table 9: 0.35 W/m K (range 0.15-0.51;
+#   the paper's all-format LFP median is 0.40). About a third of NMC's, measured the same way (median 1.1),
+#   so the difference is the chemistry, not the method.
+# Axial: [Drake2014] 32 and 30.4 W/m K.
+LFP_CP = 1100.0
+LFP_K_RADIAL = 0.35
+LFP_K_AXIAL = 31.0
+
+
+def lfp_graphite_dUdT(soc: float) -> float:
+    """Full-cell entropic coefficient dU/dT [V/K] of an LFP/graphite cell versus SOC.
+
+    The full cell's entropy change comes from the graphite electrode; LiFePO4
+    reacts in two phases on a flat plateau and contributes little (measured on
+    a commercial LFP/graphite cell split into its electrodes: J. Power Sources
+    2014, doi:10.1016/j.jpowsour.2013.07.035). So dU/dT = -dU_neg/dT(x), with
+    the graphite fit of [ORegan2022] and the graphite window of an A123 26650
+    LFP cell (PyBaMM ``Prada2013``: x = 0.0176 empty to 0.8100 full).
+
+    Result: -0.38 to +0.06 mV/K, inside the -0.42 to +0.17 mV/K reported for
+    LFP/graphite cells near 25 degC; heat-absorbing on discharge from about
+    30 % SOC, as measured. It understates the measured mid-SOC peak (fit
+    without the graphite staging step, as published), so mid-SOC discharge
+    heat is slightly overstated and mid-SOC charge heat slightly understated.
+    """
+    soc = min(max(soc, 0.0), 1.0)
+    x = 0.0176 + 0.7924 * soc
+    dU_neg = (-0.1112 * x + 0.02914 + 0.3561 * math.exp(-((x - 0.08309) ** 2) / 0.004616)) / 1000.0
+    return -dU_neg
+
+
 def default_soc_factor(soc: float) -> float:
     """ASSUMPTION: resistance multiplier vs SOC.
 

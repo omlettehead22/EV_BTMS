@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.4
+
+LFP cells, the fifth v0.5 mini update: user-defined cylindrical cells can now be LFP/graphite.
+
+- **New: `chemistry: LFP`.**
+  - Thermal properties measured on whole cylindrical LFP cells: heat capacity 1100 J/kg·K (mean of a 2022 meta-analysis' cylindrical LFP entries, leaving out two at full charge), radial conductivity 0.35 W/m·K (median; range 0.15–0.51), axial 31 W/m·K (Drake 2014).
+  - LFP's radial conduction is about a third of NMC's measured the same way. PackTherm's calculated NMC value (1.23) is close to the measured NMC median (about 1.1), so the difference is the chemistry, not the method.
+  - Sources are in `cells.py` and `docs/STUDY_FILES.md`.
+- **New: LFP entropic heat** (`cells.lfp_graphite_dUdT`). It comes from the graphite electrode, which dominates an LFP/graphite cell's entropy change: the published O'Regan 2022 graphite fit, over an A123 26650 LFP cell's graphite range (PyBaMM `Prada2013`).
+  - It runs from −0.38 to +0.06 mV/K, inside the −0.42 to +0.17 mV/K reported, and absorbs heat on discharge from about 30 % charge, as measured. Tests check both.
+  - It understates the measured mid-charge peak: slightly more heat than real in mid-charge discharge (the safe side), slightly less in mid-charge charge.
+- **Checked:** PyBaMM's own O'Regan 2022 graphite and NMC entropic functions match PackTherm's exactly (PyBaMM zeroes the same staging term), so the existing NMC entropic heat is confirmed.
+- **Chemistry-specific plausibility checks.**
+  - Nominal voltage errors outside 2.9–3.45 V for LFP and 3.3–4.2 V for NMC/NCA (was 2.5–4.2). The error suggests the likely mix-up: a 3.2 V cell labelled NMC, or a 3.6 V cell labelled LFP.
+  - LFP energy density is capped at 600 Wh/L, and LFP has its own usual density and voltage bands.
+- **New example:** `docs/examples/user_cell_lfp_26650.yaml`, an LFP power cell (Lithium Werks / A123 ANR26650M1-B) from its current datasheet; it passes with no warnings.
+- **New guidance: DC resistance, not AC impedance.** Many datasheets give only the 1 kHz AC impedance, which is lower than the DC resistance PackTherm needs (A123: 8 mΩ AC against 10 mΩ DC). The docs and the example say so.
+- **Physics check** (normal mode, same cell labelled LFP and NMC, entropic heat off, 4C):
+  - Side ribbon and air: LFP's in-cell spread is 2–2.8× NMC's (3.2 against 1.6 K; 2.0 against 0.7 K).
+  - Bottom plate: LFP comes out lower (1.3 against 1.8 K), since a plate draws heat along the axis, where LFP conducts better, and LFP's higher heat capacity damps its peaks.
+- API tests use `httpx2` (the HTTP client the test client now expects), which clears a deprecation warning.
+
 ## 0.5.3
 
 The HTTP API, the fourth v0.5 mini update: run studies over HTTP, for programs and for the web app to come.

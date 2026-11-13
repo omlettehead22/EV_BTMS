@@ -65,7 +65,7 @@ def _thesis(args) -> None:
 
 def _cell_file(path: str) -> None:
     """Show a user-defined cell as PackTherm understands it."""
-    from .user_cells import cell_from_spec, read_cell_file, validate_cell
+    from .user_cells import ENTROPIC, cell_from_spec, read_cell_file, validate_cell
 
     spec, warnings = validate_cell(read_cell_file(path))
     c = cell_from_spec(spec)
@@ -76,7 +76,10 @@ def _cell_file(path: str) -> None:
             "format",
             f"{spec['format']} ({c.diameter * 1e3:g} x {c.height * 1e3:g} mm)" if spec["format"] else c.form_factor,
         ),
-        ("chemistry", c.chemistry + ("" if spec["entropic"] and spec["chemistry"] == "NMC" else ", no entropic heat")),
+        (
+            "chemistry",
+            c.chemistry + ("" if spec["entropic"] and spec["chemistry"] in ENTROPIC else ", no entropic heat"),
+        ),
         ("capacity", f"{c.capacity_Ah:g} Ah at {c.V_nominal:g} V ({c.capacity_Ah * c.V_nominal:.1f} Wh)"),
         (
             "energy density",

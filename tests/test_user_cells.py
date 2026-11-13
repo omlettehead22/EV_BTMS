@@ -68,7 +68,10 @@ def test_cell_files_work_wherever_a_cell_name_does():
         ({"DCIR_max_mOhm": 10}, "DCIR_max_mOhm: 10 is below"),
         ({"format": 1865}, "format: must be one of"),
         ({"format": None}, "give a format"),
-        ({"chemistry": "LFP"}, "chemistry: must be one of"),
+        ({"chemistry": "LTO"}, "chemistry: must be one of"),
+        ({"V_nominal": 3.2}, "is this chemistry: LFP"),
+        ({"chemistry": "LFP"}, "is the chemistry right"),  # 3.6 V labelled LFP
+        ({"chemistry": "LFP", "V_nominal": 3.3, "capacity_Ah": 13}, "outside 100-600 Wh/L for LFP"),
         ({"T_max_charge_C": 450}, "T_max_charge_C"),
         ({"capacity": 5}, "unknown key"),
         ({"mass_g": True}, "mass_g: must be a number"),
@@ -131,3 +134,31 @@ def test_charging_without_a_datasheet_limit_is_noted():
     assert "1C charge is not checked" in notes(c, road_trip_duty(c))[0]
     assert notes(c, DutyCycle.constant(1.0)) == []
     assert notes(LG_MJ1, road_trip_duty(LG_MJ1)) == []
+
+
+def test_lfp_cell_from_its_datasheet():
+    """A real LFP power cell passes cleanly and gets the LFP properties and entropic heat."""
+    from packtherm.cells import LFP_CP, LFP_K_AXIAL, LFP_K_RADIAL, lfp_graphite_dUdT
+
+    _, warnings = validate_cell(read_example("user_cell_lfp_26650.yaml"))
+    assert warnings == []
+    c = load_cell(EX / "user_cell_lfp_26650.yaml")
+    assert (c.cp, c.k_radial, c.k_axial) == (LFP_CP, LFP_K_RADIAL, LFP_K_AXIAL)
+    assert c.dUdT is lfp_graphite_dUdT and c.chemistry == "LFP / graphite"
+    assert c.k_radial < Cell.from_datasheet(**BASE).k_radial / 3  # about a third of NMC's
+
+
+def test_lfp_entropic_profile_matches_the_literature():
+    """Within the reported -0.42..+0.17 mV/K; heat-absorbing on discharge from about 30 % SOC."""
+    from packtherm.cells import lfp_graphite_dUdT
+
+    mv = [lfp_graphite_dUdT(i / 100) * 1e3 for i in range(101)]
+    assert -0.42 <= min(mv) and max(mv) <= 0.17
+    assert all(v > 0 for v in mv[32:76])  # positive (absorbs heat on discharge) across 32-75 %
+    assert min(mv[:20]) < -0.3  # strongly exothermic on discharge near empty
+
+
+def read_example(name):
+    from packtherm.user_cells import read_cell_file
+
+    return read_cell_file(EX / name)
