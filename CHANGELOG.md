@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.2
+
+User-defined cells, the third v0.5 mini update: describe your own cylindrical cell from its datasheet and run every study on it.
+
+- **New: user-defined cells** (`packtherm.user_cells`).
+  - A definition gives name, format (18650, 21700, 26650, 4680) or diameter and height, chemistry (NMC or NCA), capacity, nominal voltage, mass and DC resistance. Optional: datasheet maximum resistance (for the worst case), current and temperature limits, and overrides for heat capacity, conductivities and the cold resistance rise.
+  - It can be written inline in a study (`cell:` as a mapping) or as its own file. A cell file works wherever a cell name does: `packtherm design my_cell.yaml`, `packtherm module my_cell.yaml`, `cell: my_cell.yaml` in a study (relative to the study; inlined so the results carry the full cell). In Python: `Cell.from_datasheet(...)` or `load_cell(path)`.
+  - `packtherm cells my_cell.yaml` checks a file and shows the cell as PackTherm understands it: density, energy density, cold resistance rise, thermal properties and limits.
+- **Model:** the lumped resistance model of the library MJ1, with no voltage model (no cut-off, no constant-voltage taper). NMC uses the NMC/graphite jelly-roll properties and entropic heat behind the LG M50. NCA uses the same jelly-roll properties and no entropic heat, as for the validated Panasonic NCA cell. Results are labelled "user-defined, lumped DCIR" in the cells table, the results JSON (`summary.cell_model`) and a study note.
+- **Unit-slip checks.** Values no real cylindrical Li-ion cell has are errors, each naming the likely slip: mass in kg, resistance in ohms, capacity in mAh, sizes, voltage, temperature limits. Unusual values are warnings, written into the results notes.
+- **Proof:** `docs/examples/user_cell_mj1.yaml`, the LG MJ1 from its datasheet values, gives byte-identical results to the library MJ1. A test checks every value the model uses and a design's full result. Conversions shift the decimal point (`65.1 mm` gives exactly `65.1e-3 m`) so this holds exactly.
+- **New note:** a duty that charges a cell with no datasheet charge limit gets a study note saying the charge rate is unchecked. The road trip's rapid charge falls back to 1C without a limit, which was easy to miss.
+- `Cell.model_label` and `Cell.user_defined`; the `packtherm cells` model column now comes from the cell.
+- Docs: README "your own cell" section; `docs/STUDY_FILES.md` documents every cell key (enforced by a test); BACKLOG.
+
 ## 0.5.1
 
 Study files, the second v0.5 mini update: one document describes a whole module study, so the command line, Python and (next) the API and web app run the same thing.

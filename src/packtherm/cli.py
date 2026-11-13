@@ -8,6 +8,7 @@ packtherm cells                       # list the cell library
 from __future__ import annotations
 
 import argparse
+import math
 import time
 from pathlib import Path
 
@@ -62,13 +63,73 @@ def _thesis(args) -> None:
         print(f"Wrote {args.out}")
 
 
+def _cell_file(path: str) -> None:
+    """Show a user-defined cell as PackTherm understands it."""
+    from .user_cells import cell_from_spec, read_cell_file, validate_cell
+
+    spec, warnings = validate_cell(read_cell_file(path))
+    c = cell_from_spec(spec)
+    rows = [
+        ("name", c.name),
+        ("model", c.model_label),
+        (
+            "format",
+            f"{spec['format']} ({c.diameter * 1e3:g} x {c.height * 1e3:g} mm)" if spec["format"] else c.form_factor,
+        ),
+        ("chemistry", c.chemistry + ("" if spec["entropic"] and spec["chemistry"] == "NMC" else ", no entropic heat")),
+        ("capacity", f"{c.capacity_Ah:g} Ah at {c.V_nominal:g} V ({c.capacity_Ah * c.V_nominal:.1f} Wh)"),
+        (
+            "energy density",
+            (
+                f"{c.capacity_Ah * c.V_nominal / (c.volume * 1e3):.0f} Wh/L, "
+                f"{c.capacity_Ah * c.V_nominal / c.mass:.0f} Wh/kg"
+            ),
+        ),
+        ("mass, density", f"{c.mass * 1e3:g} g, {c.density / 1e3:.2f} g/cm3"),
+        ("DCIR at 25 degC", f"{c.R0_25C * 1e3:g} mOhm (worst case uses {c.R0_range[1] * 1e3:g} mOhm + margin)"),
+        (
+            "cold rise",
+            (
+                f"x{math.exp(c.Ea_R / 8.314462618 * (1 / 273.15 - 1 / 298.15)):.2f} at 0 degC "
+                f"(activation energy {c.Ea_R / 1e3:g} kJ/mol)"
+            ),
+        ),
+        ("thermal", f"cp {c.cp:.0f} J/kgK, k radial {c.k_radial:.2f}, axial {c.k_axial:.1f} W/mK"),
+        (
+            "limits",
+            ", ".join(
+                x
+                for x in (
+                    f"discharge {c.max_discharge_C * c.capacity_Ah:g} A ({c.max_discharge_C:.2f}C)"
+                    if c.max_discharge_C
+                    else "",
+                    f"charge {c.max_charge_C * c.capacity_Ah:g} A ({c.max_charge_C:.2f}C)" if c.max_charge_C else "",
+                    f"charge <= {c.T_max_charge_C:g} degC" if c.T_max_charge_C is not None else "",
+                    f"discharge <= {c.T_max_discharge_C:g} degC" if c.T_max_discharge_C is not None else "",
+                )
+                if x
+            )
+            or "none given (no datasheet checks)",
+        ),
+    ]
+    w = max(len(k) for k, _ in rows)
+    for k, v in rows:
+        print(f"{k:<{w}}  {v}")
+    for x in warnings:
+        print(f"WARNING: {x}")
+    print("Lumped resistance from datasheet values, no voltage model: less accurate than the validated cells.")
+
+
 def _cells(args) -> None:
+    if args.file:
+        _cell_file(args.file)
+        return
     rows = [
         {
             "key": k,
             "name": c.name,
             "Ah": round(c.capacity_Ah, 2),
-            "model": "circuit (measured)" if k == "PF" else ("circuit (derived)" if c.ecm else "lumped DCIR"),
+            "model": c.model_label,
             "DCIR_25C_mOhm": c.R0_25C * 1e3,
             "mass_g": c.mass * 1e3,
             "max_chg_C": round(c.max_charge_C, 2) if c.max_charge_C else None,
@@ -374,11 +435,12 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--out", type=Path, help="Write summary CSV here.")
     t.set_defaults(func=_thesis)
 
-    c = sub.add_parser("cells", help="List the cell library.")
+    c = sub.add_parser("cells", help="List the cell library, or show a user-defined cell file.")
+    c.add_argument("file", nargs="?", help="a cell file (.yaml or .json) to check and show")
     c.set_defaults(func=_cells)
 
     e = sub.add_parser("cell", help="Electro-thermal run of one cell at constant C-rate.")
-    e.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    e.add_argument("cell", help=f"Cell key ({', '.join(CELLS)}) or a cell file (.yaml or .json)")
     e.add_argument("--mode", choices=["charge", "discharge"], default="discharge")
     e.add_argument("--c-rate", type=POS, default=1.0)
     e.add_argument("--cooling", choices=["air", "liquid", "none"], default="air")
@@ -395,7 +457,7 @@ def parser() -> argparse.ArgumentParser:
     e.set_defaults(func=_cell)
 
     d = sub.add_parser("design", help="Sweep module cooling designs and chart the trade-off.")
-    d.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    d.add_argument("cell", help=f"Cell key ({', '.join(CELLS)}) or a cell file (.yaml or .json)")
     d.add_argument(
         "--level",
         choices=["module", "cell"],
@@ -472,7 +534,7 @@ def parser() -> argparse.ArgumentParser:
     d.set_defaults(func=_design)
 
     mo = sub.add_parser("module", help="Simulate a cell inside a packed module (inlet and outlet cell).")
-    mo.add_argument("cell", help=f"Cell key: {', '.join(CELLS)}")
+    mo.add_argument("cell", help=f"Cell key ({', '.join(CELLS)}) or a cell file (.yaml or .json)")
     mo.add_argument("--compare", action="store_true", help="Compare all cooling topologies x fillers.")
     mo.add_argument("--fast", action="store_true", help="fast mode: coarser step and grids (see docs/FAST_MODE.md)")
     mo.add_argument("--cooling", choices=["none", "air", "bottom", "ribbon"], default="ribbon")

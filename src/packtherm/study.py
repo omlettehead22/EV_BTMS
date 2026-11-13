@@ -135,7 +135,7 @@ OPTION_KEYS = {
 TOP_KEYS = {
     "packtherm_study": (int, None, None),
     "name": (str, None, None),
-    "cell": (str, None, None),
+    "cell": ((str, dict), None, None),  # library key, cell file, or an inline definition
     "mode": (str, "normal", _choice("normal", "fast")),
     "ambient_C": (NUM, 25.0, None),
 }
@@ -149,7 +149,14 @@ def _type_ok(value, types) -> bool:
 
 
 def _type_name(types) -> str:
-    names = {int: "an integer", float: "a number", str: "text", list: "a list", bool: "true or false"}
+    names = {
+        int: "an integer",
+        float: "a number",
+        str: "text",
+        list: "a list",
+        bool: "true or false",
+        dict: "a mapping",
+    }
     ts = types if isinstance(types, tuple) else (types,)
     if float in ts:
         base = "a number"
@@ -182,10 +189,13 @@ def _check_section(doc: dict, keys: dict, where: str, errors: list[str]) -> dict
     return out
 
 
-def validate(doc: Any) -> dict:
+def validate(doc: Any, base_dir: str | Path | None = None) -> dict:
     """Check a study document and return it with every default filled in.
 
-    Raises StudyError listing every problem, each naming its field.
+    ``cell`` may be a library key, a cell file (.yaml/.yml/.json, relative to
+    ``base_dir``) or an inline definition; a file is read and inlined, so the
+    results carry the full cell. Raises StudyError listing every problem,
+    each naming its field.
     """
     from .cells import CELLS as CELL_LIBRARY
     from .materials import PCM_LIBRARY
@@ -200,8 +210,30 @@ def validate(doc: Any) -> dict:
             errors.append(f"{k}: required")
     if "packtherm_study" in doc and doc["packtherm_study"] != FORMAT_VERSION:
         errors.append(f"packtherm_study: this version reads format {FORMAT_VERSION}, got {doc['packtherm_study']!r}")
-    if isinstance(spec.get("cell"), str) and spec["cell"].upper() not in {c.upper() for c in CELL_LIBRARY}:
-        errors.append(f"cell: unknown cell {spec['cell']!r} (choose from {', '.join(CELL_LIBRARY)})")
+    cell = spec.get("cell")
+    if isinstance(cell, str) and cell.lower().endswith((".yaml", ".yml", ".json")):
+        from .user_cells import read_cell_file
+
+        path = Path(cell) if base_dir is None or Path(cell).is_absolute() else Path(base_dir) / cell
+        try:
+            cell = spec["cell"] = read_cell_file(path)
+        except FileNotFoundError:
+            errors.append(f"cell: cell file not found: {path}")
+            cell = None
+        except ValueError as e:
+            errors.append(f"cell: {e}")
+            cell = None
+    if isinstance(cell, dict):
+        from .user_cells import CellError, validate_cell
+
+        try:
+            spec["cell"], _ = validate_cell(cell, "cell.")
+        except CellError as e:
+            errors.extend(line.strip() for line in str(e).splitlines()[1:])
+    elif isinstance(cell, str) and cell.upper() not in {c.upper() for c in CELL_LIBRARY}:
+        errors.append(
+            f"cell: unknown cell {cell!r} (choose from {', '.join(CELL_LIBRARY)}, a cell file, or a definition)"
+        )
 
     for name, keys in SECTIONS.items():
         sec = doc.get(name, {})
@@ -245,7 +277,8 @@ def validate(doc: Any) -> dict:
 
     if errors:
         raise StudyError("Invalid study:\n  " + "\n  ".join(errors))
-    spec["cell"] = next(c for c in CELL_LIBRARY if c.upper() == spec["cell"].upper())
+    if isinstance(spec["cell"], str):
+        spec["cell"] = next(c for c in CELL_LIBRARY if c.upper() == spec["cell"].upper())
     return spec
 
 
@@ -266,7 +299,7 @@ def _check_steps(steps, errors: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def parse(text: str, fmt: str = "yaml") -> dict:
+def parse(text: str, fmt: str = "yaml", base_dir: str | Path | None = None) -> dict:
     """Parse YAML (a superset of JSON) or JSON text into a validated study."""
     if fmt == "json":
         try:
@@ -280,14 +313,14 @@ def parse(text: str, fmt: str = "yaml") -> dict:
             doc = yaml.safe_load(text)
         except yaml.YAMLError as e:
             raise StudyError(f"Not valid YAML: {e}") from None
-    return validate(doc)
+    return validate(doc, base_dir)
 
 
 def load_study(path: str | Path) -> StudySpec:
     """Read a study file (.yaml, .yml or .json)."""
     path = Path(path)
     fmt = "json" if path.suffix.lower() == ".json" else "yaml"
-    return StudySpec(parse(path.read_text(encoding="utf-8"), fmt))
+    return StudySpec(parse(path.read_text(encoding="utf-8"), fmt, base_dir=path.parent))
 
 
 def _duty(spec: dict, cell):
@@ -320,7 +353,12 @@ def _duty(spec: dict, cell):
 
 def file_stem(spec: dict) -> str:
     """Output file stem, the same as ``packtherm design`` uses."""
-    d, cell = spec["duty"], spec["cell"].lower()
+    d = spec["duty"]
+    cell = (
+        spec["cell"].lower()
+        if isinstance(spec["cell"], str)
+        else re.sub(r"\W+", "_", spec["cell"]["name"].lower()).strip("_")
+    )
     if d["type"] == "constant":
         stem = f"{cell}_{d['direction']}_{d['c_rate']:g}C"
     elif d["type"] == "wltc":
@@ -330,7 +368,7 @@ def file_stem(spec: dict) -> str:
     else:
         stem = f"{cell}_segments"
     stem = f"module_{stem}_{spec['ambient_C']:g}C"
-    return re.sub(r"[^a-z0-9_.]+", "_", stem.lower())
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9_.]+", "_", stem.lower()))
 
 
 @dataclass
@@ -348,7 +386,7 @@ class StudySpec:
         from .module_design import ModuleStudy
 
         s = self.spec
-        cell = get_cell(s["cell"])
+        cell = get_cell(s["cell"]) if isinstance(s["cell"], str) else self.cell()
         r, sp, o = s["requirements"], s["design_space"], s["options"]
         req = Requirements(
             T_max_C=r["T_max_C"],
@@ -381,6 +419,21 @@ class StudySpec:
             resistance_margin=o["r_margin"],
             mode=s["mode"],
         )
+
+    def cell(self):
+        """The study's cell (a library cell, or the user-defined one)."""
+        from .cells import get_cell
+        from .user_cells import cell_from_spec
+
+        c = self.spec["cell"]
+        return get_cell(c) if isinstance(c, str) else cell_from_spec(c)
+
+    def cell_warnings(self) -> list[str]:
+        """Plausibility warnings for a user-defined cell (none for a library cell)."""
+        from .user_cells import validate_cell
+
+        c = self.spec["cell"]
+        return [] if isinstance(c, str) else validate_cell(c, "cell.")[1]
 
     def run(self, workers: int | None = None) -> StudyRun:
         from .module_design import run_module_study
@@ -419,6 +472,7 @@ class StudyRun:
             "study": self.spec.spec,
             "summary": {
                 "cell": st.cell.name,
+                "cell_model": st.cell.model_label,
                 "duty": st.duty.name,
                 "mode": st.mode,
                 "designs": len(t),
@@ -428,7 +482,7 @@ class StudyRun:
                 "text": res.summary(),
             },
             "picks": picks,
-            "notes": list(res.warnings) + list(res.notes()),
+            "notes": list(res.warnings) + list(res.notes()) + [f"WARNING: {w}" for w in self.spec.cell_warnings()],
             "assumptions": _assumptions(st),
             "designs": [_row(r) for _, r in t.iterrows()],
         }

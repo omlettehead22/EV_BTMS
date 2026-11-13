@@ -1,0 +1,16 @@
+# The LG INR18650 MJ1 written as a user-defined cell from its datasheet values.
+# It gives the same results as the library cell (packtherm design MJ1 ...): a test checks this.
+# Check it with: packtherm cells docs/examples/user_cell_mj1.yaml
+name: LG INR18650 MJ1 (from datasheet)
+diameter_mm: 18.3          # measured can (format: 18650 would use 18.4 x 65.0)
+height_mm: 65.1
+chemistry: NMC
+capacity_Ah: 3.5
+V_nominal: 3.635
+mass_g: 46.8
+DCIR_mOhm: 60              # measured (Heenan 2020); the summary value is 33
+max_discharge_A: 10
+max_charge_A: 3.4
+T_max_charge_C: 45
+T_max_discharge_C: 60
+source: LG Chem INR18650 MJ1 product specification; batterydesign.net

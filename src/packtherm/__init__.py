@@ -44,7 +44,9 @@ from .module_design import ModuleDesign, ModuleStudy, run_module_study
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
+
+from .user_cells import from_datasheet, load_cell
 
 __all__ = [
     "CELLS",
@@ -87,9 +89,11 @@ __all__ = [
     "constant_current",
     "default_params",
     "from_csv",
+    "from_datasheet",
     "get_cell",
     "get_pcm",
     "hardware_mass_per_cell",
+    "load_cell",
     "params_for_cell",
     "run_module_study",
     "run_scenario",

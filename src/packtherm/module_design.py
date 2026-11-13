@@ -386,6 +386,23 @@ class ModuleStudyResult(StudyResult):
                 "NOTE: bottom plates are solved in 2D (radius x height). A chiller pulling a hot-soaked pack down "
                 "through its base opens large top-to-bottom gradients while it does so."
             )
+        cell, duty = self.study.cell, self.study.duty
+        if cell.max_charge_C is None and duty.is_charge:
+            rates = [-c for _, c in duty.steps if c < 0] or [duty.c_rate]
+            trip = (
+                " The road trip charges at 1C by default; set its charge rate to change it."
+                if "km/h" in duty.name
+                else ""
+            )
+            out.append(
+                f"NOTE: {cell.name} has no datasheet charge limit, so the {max(rates):.2g}C charge is not checked "
+                f"against one.{trip}"
+            )
+        if self.study.cell.user_defined:
+            out.append(
+                "NOTE: user-defined cell: lumped resistance from datasheet values, with no voltage model (no cut-off "
+                "or constant-voltage charge taper). Less accurate than the validated cells."
+            )
         liquid = t[t.cooling_kind == "liquid"]
         if len(liquid):
             out.append(

@@ -43,9 +43,55 @@ The examples in [`docs/examples/`](examples/) (`m50_roadtrip_35c.yaml`, `m50_dis
 |---|---|---|---|
 | `packtherm_study` | integer | required | Format version: `1` |
 | `name` | text | none | Optional label, echoed in the results |
-| `cell` | text | required | A cell from `packtherm cells` (M50, M50-LUMPED, MJ1, PF), case-insensitive |
+| `cell` | text or mapping | required | A library cell from `packtherm cells` (M50, M50-LUMPED, MJ1, PF, case-insensitive), a cell file (`my_cell.yaml`, relative to the study file), or a definition written inline ([below](#user-defined-cells)) |
 | `mode` | `normal` / `fast` | `normal` | Numerical resolution ([FAST_MODE.md](FAST_MODE.md)) |
 | `ambient_C` | number | 25 | Ambient temperature; also the coolant's radiator inlet |
+
+## User-defined cells
+
+A cylindrical cell described by its datasheet, inline under `cell:` or in its own file. A cell file works wherever a cell name does: `packtherm design my_cell.yaml ...`, `packtherm module my_cell.yaml ...`, and `cell: my_cell.yaml` in a study. A study's results carry the full definition. `packtherm cells my_cell.yaml` checks a file and shows the cell as PackTherm understands it, including its density, energy density, cold resistance rise and thermal properties.
+
+```yaml
+name: My 21700 cell
+format: 21700
+chemistry: NMC
+capacity_Ah: 5.0
+V_nominal: 3.6
+mass_g: 69
+DCIR_mOhm: 22
+```
+
+[`examples/user_cell_mj1.yaml`](examples/user_cell_mj1.yaml) is the LG MJ1 written this way; it gives exactly the library MJ1's results.
+
+**Model.** The lumped resistance model, as for the library MJ1: heat from current and DC resistance, rising in the cold (Arrhenius) and at low charge, plus entropic heat. There is no voltage model, so no voltage cut-off and no constant-voltage charge taper: a charge runs at constant current to its target. Results are labelled "user-defined, lumped DCIR" and are less accurate than the validated cells.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | Label |
+| `format` | none | `18650` (18.4 × 65.0 mm), `21700` (21.1 × 70.1), `26650` (26.2 × 65.2) or `4680` (46.0 × 80.0); give this or both sizes |
+| `diameter_mm`, `height_mm` | from `format` | Can size; override the nominal size with the measured one |
+| `chemistry` | `NMC` | `NMC`: NMC/graphite jelly-roll properties and entropic heat (from the LG M50 data). `NCA`: the same jelly-roll properties, no entropic heat (published NCA profiles disagree). LFP is planned |
+| `capacity_Ah` | required | Rated capacity |
+| `V_nominal` | required | Nominal voltage |
+| `mass_g` | required | Mass, grams |
+| `DCIR_mOhm` | required | DC resistance at 25 °C, mid charge, milliohms |
+| `DCIR_max_mOhm` | `DCIR_mOhm` | Datasheet maximum; the worst-case re-check uses it plus `options.r_margin` |
+| `max_discharge_A`, `max_charge_A` | none | Datasheet current limits, checked against the duty. Without `max_charge_A`, charging is unchecked (a study note says so) and the road trip's rapid charge runs at 1C |
+| `T_max_charge_C`, `T_max_discharge_C` | none | Datasheet temperature limits. The default peak limit is the lower of 45 °C and the charging limit (for a duty that charges) or the discharge limit |
+| `cp_J_kgK`, `k_radial_W_mK`, `k_axial_W_mK` | jelly roll | Heat capacity and conductivities, if you have measured values |
+| `Ea_kJ_mol` | 20 | How fast resistance rises in the cold (20 kJ/mol: about ×2.1 from 25 to 0 °C) |
+| `entropic` | true | Entropic heat (NMC only) |
+| `source` | none | Where the values come from, echoed in the results |
+
+**Checks.** Values no real cylindrical Li-ion cell has are errors, so a unit slip fails before anything runs. Each error names the likely slip:
+- size outside 8–60 × 30–200 mm;
+- density outside 1.5–4.0 g/cm³ (mass in kg instead of grams);
+- nominal voltage outside 2.5–4.2 V;
+- energy density outside 100–1000 Wh/L (capacity in mAh);
+- resistance outside 0.5–500 mΩ (resistance in ohms);
+- temperature limits outside 20–90 °C.
+
+Unusual but possible values are warnings, shown by `packtherm cells` and written into the results notes: density outside 2.2–3.2 g/cm³, voltage outside 3.4–3.8 V, more than 800 Wh/L, or a current limit above 20C.
 
 ## `duty`
 
