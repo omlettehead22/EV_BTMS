@@ -454,7 +454,10 @@ class StudyResult:
                 f"Limits: T_peak <= {t.T_limit_C.iloc[0]:g} degC, in-cell dT <= {s.requirements.dT_cell_max_C:g} degC, "
                 f"{self._recovery_text()}"
             ),
-            f"{len(t)} designs, {int(t.feasible.sum())} feasible, {int(t.pareto.sum())} on the trade-off front",
+            (
+                f"{len(t)} design{'s' if len(t) != 1 else ''}, {int(t.feasible.sum())} feasible, "
+                f"{int(t.pareto.sum())} on the trade-off front"
+            ),
         ]
         if "cell_to_cell_limit_K" in t and np.isfinite(t.cell_to_cell_limit_K.iloc[0]):
             lines[1] += f", cell-to-cell <= {t.cell_to_cell_limit_K.iloc[0]:g} K"
