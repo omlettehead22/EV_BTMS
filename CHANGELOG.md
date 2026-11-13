@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.1
+
+Study files, the second v0.5 mini update: one document describes a whole module study, so the command line, Python and (next) the API and web app run the same thing.
+
+- **New: study files** (`packtherm.study`), format 1, in YAML or JSON.
+  - A document holds the cell, normal or fast mode, ambient, duty (constant, wltc, roadtrip or segments), requirements, design space and options. Every key except `packtherm_study`, `cell` and `duty.type` is optional; defaults are those of `packtherm design`.
+  - `packtherm run study.yaml [--out-dir]` writes `<stem>_results.json`, the designs CSV and the trade-off chart.
+  - `packtherm template [--out]` prints a commented file with every default.
+  - Python: `load_study(path)`, `StudySpec.build()` (the `ModuleStudy`), `StudySpec.run()`, `StudyRun.to_json()` and `.write()`.
+- **Validation before anything runs.** Unknown keys, wrong types, out-of-range values, unknown cells or fillers, and duty keys a duty type doesn't use are all reported together, each naming its field (for example `design_space.coolant_flows_g_s[1]: must be > 0, got -0.05`). Bad YAML or JSON and missing files give a one-line CLI error.
+- **New: results JSON** (format 1). It holds:
+  - the study as run (with defaults), PackTherm version, time and run time;
+  - a summary (designs, feasible, on the front, temperature limit), the picks and notes;
+  - the main assumptions (resolution, reference flows and pressure drops, efficiencies, chiller, wall, resistance margin, pack parts);
+  - every design.
+
+  NaN and infinities are written as null, so the file is strict JSON. It will be the API's response format.
+- **New: segments duties** in study files: `steps: [[duration_s, c_rate], ...]` (negative C-rate charges), for a custom duty without a CSV.
+- **Changed:** `packtherm design --level module` builds a study document from its flags and runs it. The CLI and study files can't diverge, and it now also writes the results JSON. Output files are otherwise unchanged, and so are the results: the road-trip study through a study file reproduces the v0.5.0 CSV exactly.
+- **New: README numbers checked in CI** (`tests/test_docs.py`): the current version against the roadmap and CHANGELOG, the road-trip picks and claims, the WLTC claims, the module comparison table and the validation figures, all against the committed example results. A model change that moves a quoted number now fails CI until the README is updated.
+- Example study files for the three example studies (`docs/examples/*.yaml`), with their results JSON. Tests check that each file is exactly what its `packtherm design` command runs.
+- README: study-file quick start; fast mode under "What the model covers"; study time corrected to 2–3½ minutes.
+- New dependency: PyYAML (≥ 6.0).
+- `packtherm.cli.parser()` returns the argument parser.
+
 ## 0.5.0
 
 Fast and normal modes, the first v0.5 mini update.

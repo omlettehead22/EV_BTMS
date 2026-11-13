@@ -78,6 +78,7 @@ Method, per-test results and known gaps: [docs/VALIDATION.md](docs/VALIDATION.md
 - **Energy:** fan and pump power from flow and pressure drop over the whole loop (laminar coolant channels, cross-flow air over the cans), the radiator fan, and chiller electricity with an ambient-dependent COP and heat leak.
 - **Mass:** filler plus cooling hardware built up from sourced dimensions (plate sheets and channels, ribbon walls and ribs, bond lines, pack-level loop, fans and chiller).
 - **Duties:** constant C-rate, a road trip (motorway then rapid charge), WLTC Class 3b through a road-load model, or a current CSV.
+- **Speed:** a normal mode for final numbers and a fast mode about 5× quicker for exploring, with the same verdicts on the example studies ([docs/FAST_MODE.md](docs/FAST_MODE.md)).
 - **Picks:** the trade-off front of feasible designs, re-checked at worst-case resistance (the published maximum plus a 20 % ageing margin), with designs that fail reported and dropped.
 
 **Limits to keep in mind:** the M50 circuit is derived, not measured; the plate and ribbon are 2D slices of a 3D field; flows, pressure drops, the roll-end resistance, wall U-value and pack-level masses are labelled assumptions. The full list, ranked by how much each could change a recommendation, is in [docs/BACKLOG.md](docs/BACKLOG.md).
@@ -89,6 +90,8 @@ pip install -e ".[dev]"
 packtherm cells                                             # the cell library
 packtherm design M50 --duty roadtrip --t-env 35 --out-dir results/
 packtherm design M50 --duty roadtrip --t-env 35 --fast     # about 5x quicker, for exploring
+packtherm template --out study.yaml                         # a commented study file to edit
+packtherm run study.yaml --out-dir results/                 # results JSON, designs CSV and chart
 packtherm design M50 --c-rate 1.5 --topologies air ribbon --coolant-flows 0.03 0.05 0.08 --gaps 1.5 2 3
 packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 packtherm module M50 --compare --duty roadtrip --t-env 35 --edge   # cells on the module wall
@@ -103,9 +106,16 @@ duty = road_trip_duty(LG_M50)
 module = Module(Layout("hex", 3.5), "RT42", SideRibbon(coolant=Coolant(flow_g_s_per_cell=0.02)))
 (row,) = compare_modules(LG_M50, [module], duty, T_ambient_C=35)
 print(f"outlet cell {row['T_peak_outlet_C']:.1f} °C, cell-to-cell {row['cell_to_cell_K']:.1f} K")
+
+from packtherm.study import load_study
+
+run = load_study("docs/examples/m50_roadtrip_35c.yaml").run()
+print(run.result.summary())  # run.to_json() is the results document
 ```
 
-A module study of about 40 designs takes 2–3 minutes on two cores, or under a minute with `--fast` (peaks within about 0.1 K of normal mode; see [docs/FAST_MODE.md](docs/FAST_MODE.md)). `packtherm design --help` lists every design variable and limit.
+**Study files.** A study (cell, duty, ambient, limits, design space, options, normal or fast) can be written as one YAML or JSON file; `packtherm design` flags build the same document. Each example study in [`docs/examples/`](docs/examples/) has its file and its results JSON, and every number this README quotes from them is checked in CI (`tests/test_docs.py`).
+
+A module study of about 40 designs takes 2–3½ minutes on two cores, or under a minute with `--fast` (peaks within about 0.1 K of normal mode; see [docs/FAST_MODE.md](docs/FAST_MODE.md)). `packtherm design --help` lists every design variable and limit.
 
 ## Roadmap
 
@@ -130,8 +140,9 @@ A module study of about 40 designs takes 2–3 minutes on two cores, or under a 
 | **v0.4.11** | LG M50 equivalent circuit derived from a physics model (PyBaMM + ORegan2022); worst-case checks scale every loss term |
 | **v0.4.12** | Audit: crash and message fixes, air cooling depends on the gap, rebuilt README, 2D field and validation figures |
 | **v0.4.13** | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
-| **v0.5.0** (current) | Fast and normal modes: fast is about 5× quicker with the same verdicts on the example studies; exact region volumes on every mesh |
-| v0.5.x (next) | Study file format, HTTP API, web app, public deployment |
+| **v0.5.0** | Fast and normal modes: fast is about 5× quicker with the same verdicts on the example studies; exact region volumes on every mesh |
+| **v0.5.1** (current) | Study files (YAML or JSON): `packtherm run`, `packtherm template`, results JSON; README numbers checked in CI |
+| v0.5.x (next) | User-defined cells, HTTP API, web app, public deployment |
 
 Results from earlier versions, as they stood at the time, are in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -139,10 +150,10 @@ Results from earlier versions, as they stood at the time, are in [docs/HISTORY.m
 
 ```
 src/packtherm/        the package: cells, ecm, electrothermal, model (1D), model2d, module, hardware,
-                      module_design, design, ev, materials, report, validation, cli
+                      module_design, study (study files), design, ev, materials, report, validation, cli
 src/packtherm/data/   WLTC Class 3b trace (UN GTR 15), NCR18650PF and LG M50 OCV tables
 validation/           dataset preparation, identification, M50 derivation and checks, processed test data
-docs/examples/        design studies and module comparisons (charts and CSVs)
+docs/examples/        example study files, their results (JSON, CSV, charts) and module comparisons
 docs/figures/         model picture and 2D fields, with the scripts that draw them
 docs/validation/      validation figures and per-test results
 docs/VALIDATION.md    validation method and results

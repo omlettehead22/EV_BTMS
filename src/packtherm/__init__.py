@@ -44,7 +44,7 @@ from .module_design import ModuleDesign, ModuleStudy, run_module_study
 from .params import KELVIN, PCM, Geometry, Material, Params, SolverSettings, default_params
 from .scenarios import Scenario, run_scenario, thesis_scenarios
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 __all__ = [
     "CELLS",
