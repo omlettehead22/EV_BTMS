@@ -113,7 +113,7 @@ run = load_study("docs/examples/m50_roadtrip_35c.yaml").run()
 print(run.result.summary())  # run.to_json() is the results document
 ```
 
-**Study files.** A study (cell, duty, ambient, limits, design space, options, normal or fast) can be written as one YAML or JSON file; `packtherm design` flags build the same document. Each example study in [`docs/examples/`](docs/examples/) has its file and its results JSON, and every number this README quotes from them is checked in CI (`tests/test_docs.py`).
+**Study files.** A study (cell, duty, ambient, limits, design space, options, normal or fast) can be written as one YAML or JSON file; `packtherm design` flags build the same document. Every key is described in [docs/STUDY_FILES.md](docs/STUDY_FILES.md). Each example study in [`docs/examples/`](docs/examples/) has its file and its results JSON, and every number this README quotes from them is checked in CI (`tests/test_docs.py`).
 
 A module study of about 40 designs takes 2–3½ minutes on two cores, or under a minute with `--fast` (peaks within about 0.1 K of normal mode; see [docs/FAST_MODE.md](docs/FAST_MODE.md)). `packtherm design --help` lists every design variable and limit.
 
@@ -159,6 +159,7 @@ docs/validation/      validation figures and per-test results
 docs/VALIDATION.md    validation method and results
 docs/BACKLOG.md       known issues and improvement plan
 docs/FAST_MODE.md     fast and normal modes: settings, speed and accuracy
+docs/STUDY_FILES.md   study and results file formats
 docs/HISTORY.md       earlier versions, thesis results and figures (docs/history/)
 tests/                parity, physics, module, design and validation tests
 matlab/               original thesis code and reference results

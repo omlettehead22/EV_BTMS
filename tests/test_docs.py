@@ -104,3 +104,11 @@ def test_validation_numbers_match_the_per_test_results():
     assert (
         f"**{therm.T_rmse_K.median():.2f} K** median, {(therm.T_rmse_K <= 1).mean() * 100:.0f} % within 1 K" in README
     )
+
+
+def test_m50_heat_check_claims():
+    """The README's M50 range and the old lumped model's worst error, from the committed check."""
+    m = pd.read_csv(ROOT / "validation" / "m50_vs_dfn.csv")
+    lo, hi = (m.ratio_circuit.min() - 1) * 100, (m.ratio_circuit.max() - 1) * 100
+    assert f"within −{abs(lo):.0f} % to +{hi:.0f} %" in README
+    assert f"up to {(m.ratio_lumped.max() - 1) * 100:.0f} % high" in README

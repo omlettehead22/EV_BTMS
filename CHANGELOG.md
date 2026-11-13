@@ -24,6 +24,7 @@ Study files, the second v0.5 mini update: one document describes a whole module 
 - README: study-file quick start; fast mode under "What the model covers"; study time corrected to 2–3½ minutes.
 - New dependency: PyYAML (≥ 6.0).
 - `packtherm.cli.parser()` returns the argument parser.
+- `docs/STUDY_FILES.md`: every key of the study and results formats; a test checks that every key the format accepts is documented there. A test also checks the README's M50 heat claims against `validation/m50_vs_dfn.csv`.
 
 ## 0.5.0
 

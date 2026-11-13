@@ -523,7 +523,12 @@ def main(argv: list[str] | None = None) -> None:
     try:
         args.func(args)
     except (KeyError, ValueError, OSError) as e:  # unknown name, invalid combination or study, missing file
-        msg = str(e) if isinstance(e, OSError) else (e.args[0] if e.args else str(e))
+        if isinstance(e, FileNotFoundError) and e.filename:
+            msg = f"file not found: {e.filename}"
+        elif isinstance(e, OSError):
+            msg = f"cannot read {e.filename}: {e.strerror}" if e.filename and e.strerror else str(e)
+        else:
+            msg = e.args[0] if e.args else str(e)
         ap.exit(2, f"packtherm {args.cmd}: error: {msg}\n")
 
 

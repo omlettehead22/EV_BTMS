@@ -124,3 +124,17 @@ def test_bad_study_file_exits_cleanly(tmp_path, capsys):
         main(["run", str(bad)])
     assert e.value.code == 2
     assert "duty.c_rate: must be > 0" in capsys.readouterr().err
+
+
+def test_every_key_is_documented():
+    """docs/STUDY_FILES.md names every key the format accepts."""
+    from pathlib import Path
+
+    from packtherm.study import SECTIONS, TOP_KEYS
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "STUDY_FILES.md").read_text(encoding="utf-8")
+    for name, keys in {"": TOP_KEYS, **SECTIONS}.items():
+        if name:
+            assert f"## `{name}`" in doc, name
+        for k in keys:
+            assert f"`{k}`" in doc, f"{name}.{k}" if name else k
