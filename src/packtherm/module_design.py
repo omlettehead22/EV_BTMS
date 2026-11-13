@@ -58,6 +58,7 @@ from .electrothermal import check_limits
 from .hardware import PackHardware, hardware_mass_per_cell
 from .materials import get_pcm, melt_midpoint_C
 from .module import (
+    RESOLUTIONS,
     AirFlow,
     BottomPlate,
     Chiller,
@@ -66,6 +67,7 @@ from .module import (
     Layout,
     Module,
     PlateGeometry,
+    Resolution,
     RibbonGeometry,
     SideRibbon,
     Wall,
@@ -136,7 +138,20 @@ class ModuleStudy:
     # radiator for recovery. "always": the chiller keeps running through the rest.
     chiller_runs: str = "event"
     resistance_margin: float = 0.2
-    dt: float = 2.0
+    mode: str = "normal"  # numerical resolution: "normal" or "fast" (RESOLUTIONS)
+    dt: float | None = None  # thermal step [s]; None = the mode's
+
+    def __post_init__(self) -> None:
+        if self.mode not in RESOLUTIONS:
+            raise ValueError(f"Unknown mode {self.mode!r}; choose from {', '.join(RESOLUTIONS)}")
+
+    @property
+    def resolution(self) -> Resolution:
+        return RESOLUTIONS[self.mode]
+
+    @property
+    def time_step(self) -> float:
+        return self.resolution.dt if self.dt is None else self.dt
 
     @property
     def R0_worst(self) -> float:
@@ -190,7 +205,7 @@ class ModuleStudy:
 
 def _base(study: ModuleStudy) -> Params:
     base = Params()
-    return base.with_(solver=replace(base.solver, dt=study.dt, store_every=max(1, int(60 / study.dt))))
+    return base.with_(solver=replace(base.solver, dt=study.time_step, store_every=max(1, int(60 / study.time_step))))
 
 
 def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None = None, inlet: bool = True) -> dict:
@@ -201,16 +216,26 @@ def evaluate_module_design(study: ModuleStudy, d: ModuleDesign, R0: float | None
     module = study.module(d)
     event = duty.event_duration()
     duration = event + (0.0 if duty.repeat else duty.rest_after_s)
-    kw = {"soc0": duty.soc0, "soc_limits": duty.soc_limits, "base": _base(study)}
+    res_ = study.resolution
+    kw = {
+        "soc0": duty.soc0,
+        "soc_limits": duty.soc_limits,
+        "base": _base(study),
+        "dr_mm": res_.dr_mm,
+        "nz": res_.nz,
+        "n_theta": res_.n_theta,
+        "electrical_dt": res_.electrical_dt,
+        "exact_volumes": res_.exact_volumes,
+    }
     r = simulate_module(cell, module, duty.profile(cell), duration, req.T_env_C, position="outlet", **kw)
     res = r.res
     a = r.load.arrays()
     dt = np.diff(res.t)
-    throughput_Wh = float(np.sum(np.abs(a["current_A"]) * dt)) * cell.V_nominal / 3600.0
+    throughput_Wh = float(np.sum(a["I_abs_A"] * dt)) * cell.V_nominal / 3600.0
 
     # Recovery: as in the single-cell advisor, on the outlet cell.
-    active = np.flatnonzero(np.abs(a["current_A"]) > 0)
-    t_stop = float(a["t"][active[-1]] + study.dt) if active.size else 0.0
+    active = np.flatnonzero(a["I_abs_A"] > 0)
+    t_stop = float(a["t"][active[-1]] + study.time_step) if active.size else 0.0
     after = res.t >= t_stop - 1e-9
     ready = after & (r.T_top - T_amb < 1.0) & (res.pcm_fraction < 0.01)
     recovered = bool(ready.any()) and not duty.repeat
@@ -385,10 +410,12 @@ def run_module_study(study: ModuleStudy, workers: int | None = None, robustness:
 
 
 __all__ = [
+    "RESOLUTIONS",
     "TOPOLOGIES",
     "ModuleDesign",
     "ModuleStudy",
     "ModuleStudyResult",
+    "Resolution",
     "evaluate_module_design",
     "run_module_study",
 ]

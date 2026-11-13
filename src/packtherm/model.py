@@ -48,6 +48,12 @@ def build_grid(P: Params) -> Grid:
     r_w = np.maximum(r - dr / 2, 0.0)
     r_e = r + dr / 2
     volume = np.pi * (r_e**2 - r_w**2) * g.length
+    if g.exact_volumes:
+        bounds = {CELL: (0.0, g.r_cell), PCM_REGION: (g.r_cell, g.r_pcm), CASE: (g.r_pcm, g.r_case)}
+        for reg, (a, b) in bounds.items():
+            m = region == reg
+            if m.any() and b > a:
+                volume[m] *= np.pi * (b**2 - a**2) * g.length / volume[m].sum()
     outer_area = 2 * np.pi * (r[-1] + dr / 2) * g.length
     return Grid(r, region, dr, volume, outer_area)
 

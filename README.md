@@ -88,6 +88,7 @@ Method, per-test results and known gaps: [docs/VALIDATION.md](docs/VALIDATION.md
 pip install -e ".[dev]"
 packtherm cells                                             # the cell library
 packtherm design M50 --duty roadtrip --t-env 35 --out-dir results/
+packtherm design M50 --duty roadtrip --t-env 35 --fast     # about 5x quicker, for exploring
 packtherm design M50 --c-rate 1.5 --topologies air ribbon --coolant-flows 0.03 0.05 0.08 --gaps 1.5 2 3
 packtherm module M50 --cooling ribbon --filler RT31-EG --flow 0.08 --inlet-c 20
 packtherm module M50 --compare --duty roadtrip --t-env 35 --edge   # cells on the module wall
@@ -104,7 +105,7 @@ module = Module(Layout("hex", 3.5), "RT42", SideRibbon(coolant=Coolant(flow_g_s_
 print(f"outlet cell {row['T_peak_outlet_C']:.1f} °C, cell-to-cell {row['cell_to_cell_K']:.1f} K")
 ```
 
-A module study of about 40 designs takes a few minutes; `packtherm design --help` lists every design variable and limit.
+A module study of about 40 designs takes 2–3 minutes on two cores, or under a minute with `--fast` (peaks within about 0.1 K of normal mode; see [docs/FAST_MODE.md](docs/FAST_MODE.md)). `packtherm design --help` lists every design variable and limit.
 
 ## Roadmap
 
@@ -128,8 +129,9 @@ A module study of about 40 designs takes a few minutes; `packtherm design --help
 | **v0.4.10** | Cold-weather cell model: temperature laws for the low-SOC rise and slow branch (88 % of blind tests within 1 K) |
 | **v0.4.11** | LG M50 equivalent circuit derived from a physics model (PyBaMM + ORegan2022); worst-case checks scale every loss term |
 | **v0.4.12** | Audit: crash and message fixes, air cooling depends on the gap, rebuilt README, 2D field and validation figures |
-| **v0.4.13** (current) | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
-| v0.5 (next) | Product release: web app and API, licence |
+| **v0.4.13** | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
+| **v0.5.0** (current) | Fast and normal modes: fast is about 5× quicker with the same verdicts on the example studies; exact region volumes on every mesh |
+| v0.5.x (next) | Study file format, HTTP API, web app, public deployment |
 
 Results from earlier versions, as they stood at the time, are in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -145,6 +147,7 @@ docs/figures/         model picture and 2D fields, with the scripts that draw th
 docs/validation/      validation figures and per-test results
 docs/VALIDATION.md    validation method and results
 docs/BACKLOG.md       known issues and improvement plan
+docs/FAST_MODE.md     fast and normal modes: settings, speed and accuracy
 docs/HISTORY.md       earlier versions, thesis results and figures (docs/history/)
 tests/                parity, physics, module, design and validation tests
 matlab/               original thesis code and reference results

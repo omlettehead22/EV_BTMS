@@ -317,6 +317,7 @@ def params_for_cell(
     case_thickness: float = 1e-3,
     base: Params | None = None,
     dr_target: float = 1e-4,
+    exact_volumes: bool = False,
 ) -> Params:
     """Model parameters for ``cell`` wrapped in PCM and a casing.
 
@@ -328,7 +329,9 @@ def params_for_cell(
     r_pcm = r_cell + pcm_thickness
     r_case = r_pcm + case_thickness
     n = max(3, int(np.ceil(r_case / dr_target)))
-    geom = Geometry(r_cell=r_cell, r_pcm=r_pcm, r_case=r_case, length=cell.height, n_cells=n)
+    geom = Geometry(
+        r_cell=r_cell, r_pcm=r_pcm, r_case=r_case, length=cell.height, n_cells=n, exact_volumes=exact_volumes
+    )
     return base.with_(geometry=geom, cell=cell.material)
 
 

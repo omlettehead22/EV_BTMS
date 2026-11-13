@@ -457,14 +457,25 @@ class Module:
 # ---------------------------------------------------------------------------
 
 
-def module_params(cell: Cell, module: Module, base: Params | None = None) -> Params:
+def module_params(
+    cell: Cell, module: Module, base: Params | None = None, dr_mm: float = 0.1, exact_volumes: bool = False
+) -> Params:
+    """Model parameters for one cell's share of the module (radial spacing ``dr_mm``)."""
     base = base or Params()
+    dr = dr_mm * 1e-3
     if module.filler is None:
-        P = params_for_cell(cell, pcm_thickness=0.0, case_thickness=0.0, base=base)
+        P = params_for_cell(
+            cell, pcm_thickness=0.0, case_thickness=0.0, base=base, dr_target=dr, exact_volumes=exact_volumes
+        )
     else:
         r_u = module.layout.unit_radius(cell)
         P = params_for_cell(
-            cell, pcm_thickness=r_u - cell.radius, case_thickness=0.0, base=base.with_(pcm=get_pcm(module.filler))
+            cell,
+            pcm_thickness=r_u - cell.radius,
+            case_thickness=0.0,
+            base=base.with_(pcm=get_pcm(module.filler)),
+            dr_target=dr,
+            exact_volumes=exact_volumes,
         )
     return P
 
@@ -603,6 +614,9 @@ def simulate_module(
     coolant_mass: bool = True,
     nz: int = 16,
     n_theta: int = 12,
+    dr_mm: float = 0.1,
+    electrical_dt: float | None = None,
+    exact_volumes: bool = True,
 ) -> ModuleResult:
     """Simulate one cell of the module (the coolant-outlet cell by default).
 
@@ -614,11 +628,13 @@ def simulate_module(
     (``nz=0``: the v0.4.7 radial model with a quasi-steady axial estimate).
     Side ribbons are solved on a radius x angle grid with ``n_theta`` slices
     over half the circumference (``n_theta=0``: the radial model with the
-    contact spread evenly round the can).
+    contact spread evenly round the can). ``dr_mm`` is the radial spacing;
+    ``electrical_dt`` caps the cell model's step inside a longer thermal step;
+    ``exact_volumes`` gives each region its exact volume on a coarse mesh.
     """
     T_amb = T_ambient_C + KELVIN
     base = (base or Params()).with_(T_initial=T_amb)
-    P = module_params(cell, module, base)
+    P = module_params(cell, module, base, dr_mm=dr_mm, exact_volumes=exact_volumes)
     L = cell.height
     cooling = module.cooling
     sinks: list[Sink] = []
@@ -674,7 +690,9 @@ def simulate_module(
             return G
 
         sinks.append(Sink(G_wall, T_amb, "wall"))
-    load = ElectroThermalLoad(cell, profile, soc0=soc0, soc_limits=soc_limits, entropic=entropic)
+    load = ElectroThermalLoad(
+        cell, profile, soc0=soc0, soc_limits=soc_limits, entropic=entropic, max_substep=electrical_dt
+    )
     if isinstance(cooling, BottomPlate) and nz > 0:
         # Full radius x height field (v0.4.8): replaces the quasi-steady axial estimate.
         from .model2d import Axial, simulate_2d
@@ -794,6 +812,7 @@ def pcm_volume_fraction(cell: Cell, module: Module) -> float:
 
 __all__ = [
     "PCM_REGION",
+    "RESOLUTIONS",
     "AirFlow",
     "BottomPlate",
     "Chiller",
@@ -803,6 +822,7 @@ __all__ = [
     "Module",
     "ModuleResult",
     "PlateGeometry",
+    "Resolution",
     "RibbonGeometry",
     "SideRibbon",
     "Wall",
@@ -815,20 +835,54 @@ __all__ = [
 ]
 
 
+@dataclass(frozen=True)
+class Resolution:
+    """Numerical resolution of a module study.
+
+    dt            thermal time step [s]
+    electrical_dt longest step of the cell's electrical model inside a thermal
+                  step [s] (None: the thermal step)
+    dr_mm         radial spacing; nz plate layers; n_theta ribbon slices
+    exact_volumes scale each region to its exact volume (needed on a coarse mesh)
+    """
+
+    name: str
+    dt: float
+    electrical_dt: float | None
+    dr_mm: float
+    nz: int
+    n_theta: int
+    exact_volumes: bool = False
+
+
+# "normal" is the resolution every result up to v0.4.13 used. "fast" is about
+# ten times quicker for a small accuracy cost (see docs/FAST_MODE.md).
+RESOLUTIONS = {
+    "normal": Resolution("normal", dt=2.0, electrical_dt=None, dr_mm=0.1, nz=16, n_theta=12, exact_volumes=True),
+    "fast": Resolution("fast", dt=5.0, electrical_dt=2.0, dr_mm=0.3, nz=12, n_theta=8, exact_volumes=True),
+}
+
+
 def compare_modules(
     cell: Cell,
     modules: list[Module],
     duty,
     T_ambient_C: float = 25.0,
-    dt: float = 2.0,
+    dt: float | None = None,
     edge: bool = False,
+    mode: str = "normal",
 ) -> list[dict]:
     """Inlet and outlet cell of each module design for one duty cycle (a design.DutyCycle).
 
     ``edge=True`` runs the cells on the module wall instead of interior cells.
+    ``mode`` picks the numerical resolution (RESOLUTIONS); ``dt`` overrides its step.
     """
     from dataclasses import replace as _replace
 
+    if mode not in RESOLUTIONS:
+        raise ValueError(f"Unknown mode {mode!r}; choose from {', '.join(RESOLUTIONS)}")
+    res_ = RESOLUTIONS[mode]
+    dt = res_.dt if dt is None else dt
     base = Params()
     base = base.with_(solver=_replace(base.solver, dt=dt, store_every=max(1, int(60 / dt))))
     duration = duty.event_duration()
@@ -852,6 +906,11 @@ def compare_modules(
                 soc_limits=duty.soc_limits,
                 base=base,
                 edge=edge,
+                dr_mm=res_.dr_mm,
+                nz=res_.nz,
+                n_theta=res_.n_theta,
+                electrical_dt=res_.electrical_dt,
+                exact_volumes=res_.exact_volumes,
             )
             out[f"T_peak_{pos}_C"] = r.T_peak_C
             out[f"dT_cell_{pos}_K"] = r.dT_cell_max
