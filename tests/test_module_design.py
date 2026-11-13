@@ -96,3 +96,36 @@ def test_edge_cells_in_the_score():
     assert row["cell_to_cell_K"] == pytest.approx(row["T_peak_C"] - coolest)
     off = evaluate_module_design(small_study(edge_cells=False), ModuleDesign("ribbon", 0.05, 15.0, None))
     assert np.isnan(off["T_peak_edge_outlet_C"]) and off["T_peak_C"] == off["T_peak_interior_C"]
+
+
+def test_gaps_below_ribbon_minimum_do_not_duplicate_designs():
+    s = small_study(topologies=("ribbon",), gaps_mm=(1.5, 2.0, 3.0), chiller_inlets_C=())
+    ds = s.designs()
+    assert len(ds) == len(set(ds)) == len(s.fillers)  # all widen to the same 3.5 mm gap
+    assert {d.gap_mm for d in ds} == {3.5}
+
+
+def test_summary_when_feasible_designs_are_not_robust():
+    from packtherm.design import Requirements
+    from packtherm.module_design import ModuleStudy, run_module_study
+
+    # A tight limit that nominal designs meet but the worst-case re-check breaks.
+    s = small_study(topologies=("ribbon",), fillers=(None,), chiller_inlets_C=(), edge_cells=False)
+    probe = evaluate_module_design(s, ModuleDesign("ribbon", 0.05, None, None, 3.5))
+    req = Requirements(T_env_C=25.0, T_max_C=probe["T_peak_C"] + 0.2)
+    r = run_module_study(
+        ModuleStudy(
+            LG_M50,
+            DUTY,
+            req,
+            **{
+                k: getattr(s, k)
+                for k in ("topologies", "coolant_flows_g_s", "fillers", "chiller_inlets_C", "edge_cells", "dt")
+            },
+        ),
+        workers=1,
+    )
+    text = r.summary()
+    assert r.table.feasible.any() and not r.picks
+    assert "No robust design" in text and "No feasible design" not in text
+    assert "nominal" in text

@@ -1,8 +1,9 @@
 # Validation against measured cell temperatures
 
 **Bottom line:**
-- **Thermal model:** with one calibrated parameter, it predicts the measured surface temperature of a commercial 18650 cell within **0.59 K median RMSE** over 49 blind tests, from 25 °C down to −20 °C. That covers drive cycles, constant-current discharge and CC-CV charging.
-- **Fully predictive model** (current in, voltage and temperature out): **0.65 K median RMSE** for temperature, with 88 % of tests within 1 K and every ambient's median at or below 0.77 K. Voltage error is **17–34 mV** from 25 °C to 0 °C and 53–70 mV at −10 and −20 °C (v0.4.10; it was 84–177 mV).
+- **Thermal model:** with one calibrated parameter, it predicts the measured surface temperature of a commercial 18650 cell within **0.60 K median RMSE** over 48 blind tests (a 49th test is used for the calibration), from 25 °C down to −20 °C. That covers drive cycles, constant-current discharge and CC-CV charging.
+- **Fully predictive model** (current in, voltage and temperature out): **0.65 K median RMSE** for temperature over the same 48 blind tests, with 88 % within 1 K and every ambient's median at or below 0.77 K. Voltage error is **17–34 mV** from 25 °C to 0 °C and 53–70 mV at −10 and −20 °C (v0.4.10; it was 84–177 mV).
+- **LG M50** (the default design cell): no measured data is used. Its circuit is derived from a physics model, and its heat agrees with that model within −6 % to +13 % ([below](#lg-m50-checked-against-a-physics-model-not-measured)).
 
 ## Data
 
@@ -43,6 +44,8 @@ Other details:
 | −10 °C | 9 | 0.59 K / 0.5 K | 0.70 K / 3.1 K | 53 mV |
 | −20 °C | 9 | 0.72 K / 1.2 K | 0.73 K / 3.5 K | 70 mV |
 
+![v0.4.10 against v0.4.9 by ambient](validation/cold_weather.png)
+
 v0.4.10 compared with v0.4.9 (same 48 blind tests): predictive tests within 1 K 79 % → 88 %; −20 °C median 1.28 → 0.73 K; cold voltage error roughly halved. The worst cold peak errors changed sign: the model used to over-predict heat in the cold (+3.4 K worst, the safe side for design) and now under-predicts it slightly (−3.5 K worst, cold heat 7–10 % low on average).
 
 The measured rises go up to 20 K in the cold. 96 % of thermal-mode tests and 88 % of predictive tests are within 1 K RMSE. Full per-test table: [`validation/summary.csv`](validation/summary.csv).
@@ -64,13 +67,34 @@ The measured rises go up to 20 K in the cold. 96 % of thermal-mode tests and 88 
   - **Entropic heat** is still neglected for this NCA cell (no dU/dT data in the dataset). The charge is about 1.1–1.4 K under-predicted in both modes, consistent with missing reversible heat. Published NCA/graphite profiles disagree on the sign over the relevant SOC range (one study reports entropic heat strongly negative on charge, which would make the error worse), so no literature curve is applied; a potentiometric measurement on this cell would settle it.
   - **Single cell, thermocouple on the surface:** core temperature is not validated directly. The model's in-cell gradient is up to about 2.8 K at 2C (25 °C). Core-temperature datasets for the LG M50 (Warwick, Mendeley bf6fksxpp2) would close this gap, but they are not reachable from this build environment.
 
+## LG M50: checked against a physics model, not measured
+
+The LG M50 is the cell the design studies use, but there is no open temperature dataset for it that this build can reach. Since v0.4.11 its equivalent circuit is **derived**: PyBaMM's DFN model with the ORegan2022 parameter set (measured on the LG M50T, with temperature dependence) is run through synthetic pulse tests at 25, 10, 0 and −10 °C, and the same circuit as the PF cell is fitted to them (`validation/derive_m50_ecm.py`).
+
+`validation/check_m50_ecm.py` then compares irreversible heat with the DFN (self-heating) on 0.5C, 1C and 1.4C discharges and a pulsed profile at 25, 10 and 0 °C, driving both packtherm models along the DFN's temperature path:
+
+| Model | Heat ÷ DFN, all 12 cases | Pulsed profile |
+|---|---|---|
+| Derived circuit (`LG_M50_ECM`, the default since v0.4.11) | 0.94–1.13 | 0.98–1.06 |
+| Old lumped resistance (`LG_M50_LUMPED`) | 0.92–1.42 | 1.24–1.42 |
+
+The derived circuit stays within 6 % except at 25 °C 0.5C (+13 %), where the heat is smallest. The lumped model over-predicts pulsed heat by up to 42 % because it has no slow branch that relaxes between pulses. Full table: [`validation/m50_vs_dfn.csv`](../validation/m50_vs_dfn.csv).
+
+![M50 heat against the physics model](validation/m50_vs_dfn.png)
+
+This checks the circuit against the model it was derived from, so it shows the fit is faithful, not that the DFN is right about a real M50. The circuit also stops at its voltage cut-off, which in the cold comes later than the DFN's (up to 0.75 Ah later at 0 °C, 1.4C).
+
 ## Reproduce
 
 ```bash
-python validation/run_panasonic.py           # validation table + figures (≈30 s)
+python validation/run_panasonic.py           # validation table + figures
 python validation/run_panasonic.py --recalibrate
 pytest tests/test_validation.py              # regression gates on these claims
 # from the raw dataset (not stored here):
 python validation/prepare_panasonic.py  /path/to/Panasonic-18650PF-Data
-python validation/identify_panasonic.py /path/to/Panasonic-18650PF-Data
+python validation/identify_panasonic.py /path/to/Panasonic-18650PF-Data   # kinetics, then the cold laws
+# LG M50 (needs pip install pybamm):
+python validation/derive_m50_ecm.py
+python validation/check_m50_ecm.py           # writes validation/m50_vs_dfn.csv
+python docs/figures/make_m50_check.py
 ```

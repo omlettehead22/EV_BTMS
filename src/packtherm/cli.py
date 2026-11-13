@@ -43,8 +43,9 @@ def _cells(args) -> None:
         {
             "key": k,
             "name": c.name,
-            "Ah": c.capacity_Ah,
-            "R0_mOhm": c.R0_25C * 1e3,
+            "Ah": round(c.capacity_Ah, 2),
+            "model": "circuit (measured)" if k == "PF" else ("circuit (derived)" if c.ecm else "lumped DCIR"),
+            "DCIR_25C_mOhm": c.R0_25C * 1e3,
             "mass_g": c.mass * 1e3,
             "max_chg_C": c.max_charge_C,
             "max_dis_C": round(c.max_discharge_C, 2) if c.max_discharge_C else None,
@@ -52,6 +53,10 @@ def _cells(args) -> None:
         for k, c in CELLS.items()
     ]
     print(pd.DataFrame(rows).to_string(index=False))
+    print(
+        "DCIR_25C is the lumped reference; it sets the worst-case re-check. Circuit cells compute "
+        "losses from their own R0, charge transfer and slow branch."
+    )
 
 
 def _cell(args) -> None:
@@ -126,7 +131,7 @@ def _design(args) -> None:
     )
     if args.level == "module":
         from .hardware import PackHardware
-        from .module import Chiller
+        from .module import Chiller, Wall
         from .module_design import ModuleStudy, run_module_study
 
         pack = PackHardware(
@@ -147,12 +152,15 @@ def _design(args) -> None:
             gaps_mm=tuple(args.gaps),
             packing=args.packing,
             cell_to_cell_max_K=args.cell_to_cell_max,
+            edge_cells=not args.no_edge_cells,
+            wall=Wall(U=args.wall_u),
             pack=pack,
             chiller=Chiller(cop=args.cop),
             chiller_runs=args.chiller_runs,
             resistance_margin=args.r_margin,
         )
-        print(f"Simulating {len(study.designs())} module designs (inlet and outlet cell)...")
+        cells = "interior and edge cells at inlet and outlet" if study.edge_cells else "inlet and outlet cell"
+        print(f"Simulating {len(study.designs())} module designs ({cells})...")
         t0 = time.perf_counter()
         result = run_module_study(study, workers=args.workers)
         stem = "module_" + stem
@@ -217,14 +225,15 @@ def _build_duty(args, cell):
     return road_trip_duty(cell, pack, Vehicle(), speed_kmh=args.speed, charge_c_rate=args.charge_c, rest_after_s=rest)
 
 
-def _fit(layout, filler, cooling):
+def _fit(layout, filler, cooling, note=True):
     """A module, with the gap widened if a side ribbon needs more room."""
     from dataclasses import replace
 
     from .module import Module, SideRibbon
 
     if isinstance(cooling, SideRibbon) and layout.gap_mm < cooling.min_gap_mm:
-        print(f"Note: gap widened to {cooling.min_gap_mm:g} mm to fit the side ribbon and its bonds.")
+        if note:
+            print(f"Note: gap widened to {cooling.min_gap_mm:g} mm to fit the side ribbon and its bonds.")
         layout = replace(layout, gap_mm=cooling.min_gap_mm)
     return Module(layout, filler, cooling)
 
@@ -252,16 +261,20 @@ def _module(args) -> None:
         modules = [Module(layout, None, None), Module(layout, None, AirFlow(flow_g_s_per_cell=args.air_flow))]
         for kind in ("bottom", "ribbon"):
             for filler in (None, *args.fillers):
-                modules.append(_fit(layout, filler, cooling_for(kind)))
+                modules.append(_fit(layout, filler, cooling_for(kind), note=False))  # the header says so
     else:
         filler = None if args.filler in (None, "air", "none") else args.filler
         modules = [_fit(layout, filler, cooling_for(args.cooling))]
-    print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {args.gap:g} mm gap")
-    rows = compare_modules(cell, modules, duty, args.t_env)
+    gaps = sorted({m.layout.gap_mm for m in modules})
+    gap_text = " / ".join(f"{g:g}" for g in gaps) + " mm gap" + (" (ribbons widened to fit)" if len(gaps) > 1 else "")
+    where = "edge cells (on the module wall)" if args.edge else "interior cells"
+    print(f"{cell.name}, {duty.name}, ambient {args.t_env:g} degC, {layout.packing} packing, {gap_text}, {where}")
+    rows = compare_modules(cell, modules, duty, args.t_env, edge=args.edge)
     df = pd.DataFrame(rows)
     cols = [
         "cooling",
         "filler",
+        "gap_mm",
         "T_peak_inlet_C",
         "T_peak_outlet_C",
         "cell_to_cell_K",
@@ -331,7 +344,9 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--t-max", type=float, help="Peak limit [degC] (default min(45, datasheet)).")
     r.add_argument("--dt-max", type=float, default=5.0, help="In-cell spread limit [degC].")
     r.add_argument("--recovery-max-min", type=float, help="Must be ready again within this many minutes.")
-    r.add_argument("--cell-to-cell-max", type=float, help="module: inlet-to-outlet peak limit [K].")
+    r.add_argument(
+        "--cell-to-cell-max", type=float, help="module: hottest-to-coolest cell peak limit, edge cells included [K]."
+    )
     m = d.add_argument_group("module design space (--level module)")
     m.add_argument("--topologies", nargs="+", default=["none", "air", "bottom", "ribbon"])
     m.add_argument("--air-flows", type=float, nargs="+", default=[0.15, 0.3, 0.6], help="Air per cell [g/s].")
@@ -341,6 +356,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     m.add_argument("--gaps", type=float, nargs="+", default=[2.0], help="Can-to-can gaps [mm].")
     m.add_argument("--packing", choices=["hex", "square"], default="hex")
+    m.add_argument("--no-edge-cells", action="store_true", help="Skip the cells on the module wall.")
+    m.add_argument("--wall-u", type=float, default=5.0, help="Module wall to ambient, for edge cells [W/m2K].")
     v = d.add_argument_group("single-cell design space (--level cell)")
     v.add_argument("--air-h", type=float, nargs="+", default=[10, 15, 22, 33, 45, 60])
     v.add_argument("--liquid-h", type=float, nargs="+", default=[100, 180, 330, 600])
@@ -352,7 +369,9 @@ def main(argv: list[str] | None = None) -> None:
     v.add_argument("--pcm-mm", type=float, nargs="+", default=[2, 4], help="PCM thicknesses (no PCM always included).")
     v.add_argument("--case-mm", type=float, default=1.0)
     a = d.add_argument_group("assumptions")
-    a.add_argument("--cells-in-pack", type=int, default=100, help="Cells sharing the anchor fan/pump power.")
+    a.add_argument(
+        "--cells-in-pack", type=int, default=100, help="--level cell only: cells sharing the anchor fan/pump power."
+    )
     a.add_argument("--air-kg-per-kwh", type=float, default=0.5, help="--level cell only.")
     a.add_argument("--liquid-kg-per-kwh", type=float, default=1.0, help="--level cell only.")
     a.add_argument("--liquid-loop-kg", type=float, default=3.0, help="module: pump, manifolds, hoses per pack.")
@@ -398,6 +417,7 @@ def main(argv: list[str] | None = None) -> None:
     mo.add_argument("--pack-kwh", type=float, default=60.0)
     mo.add_argument("--pack-v", type=float, default=350.0)
     mo.add_argument("--t-env", type=float, default=25.0)
+    mo.add_argument("--edge", action="store_true", help="Run the cells on the module wall (edge cells).")
     mo.add_argument("--out", type=Path, help="Write results CSV here.")
     mo.set_defaults(func=_module)
 

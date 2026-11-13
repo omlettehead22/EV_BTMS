@@ -164,7 +164,8 @@ class ModuleStudy:
                     ]
                 else:
                     raise ValueError(f"Unknown topology {topo!r}; choose from {TOPOLOGIES}")
-        return out
+        # Gaps below the ribbon's minimum all widen to it: keep one of each design.
+        return list(dict.fromkeys(out))
 
     def module(self, d: ModuleDesign) -> Module:
         gap = d.gap_mm
@@ -354,7 +355,8 @@ class ModuleStudyResult(StudyResult):
     def notes(self) -> list[str]:
         t = self.table
         out = []
-        if (t.topology == "bottom").any() and (t.chilled & (t.topology == "bottom")).any():
+        pulled = t.chilled & (t.topology == "bottom") & t.fail_reason.fillna("").str.contains("uneven")
+        if pulled.any():
             out.append(
                 "NOTE: bottom plates are solved in 2D (radius x height). A chiller pulling a hot-soaked pack down "
                 "through its base opens large top-to-bottom gradients while it does so."
