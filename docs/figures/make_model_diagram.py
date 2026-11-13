@@ -1,8 +1,10 @@
-"""Draw docs/figures/model_overview.svg: how the model works, in three panels.
+"""Draw docs/figures/model_overview.svg: how the model works, in four panels.
 
-A  the module: cells in a hex array, filler in the gaps, coolant ribbons
+A  the module: cells in a hex array, filler in the gaps, coolant ribbons,
+   interior and edge cells
 B  one cell's share of the module, solved as a 1D radial problem
 C  the design loop
+D  the 2D slices used where cooling reaches the cell from one side
 
 Run: python docs/figures/make_model_diagram.py
 """
@@ -13,7 +15,7 @@ import itertools
 import math
 from pathlib import Path
 
-W, H = 1200, 600
+W, H = 1200, 960
 TEXT, TEXT_2, MUTED, GRID, SURFACE = "#0b0b0b", "#52514e", "#8a8984", "#e1e0d9", "#fcfcfb"
 CELL, CELL_EDGE = "#9ec5f4", "#256abf"
 FILL, FILL_EDGE = "#f6d79a", "#c98a1b"
@@ -65,7 +67,7 @@ text(30, 40, "How the model works", 22, TEXT, 700)
 text(
     30,
     64,
-    "A packed module is reduced to one cell's share, solved in 1D, then swept over design choices.",
+    "A packed module is reduced to a few representative cells, each solved on its own share, then swept over design choices.",
     13.5,
     TEXT_2,
 )
@@ -83,7 +85,7 @@ centres = [(x0 + c * p + (p / 2 if r % 2 else 0), y0 + r * dy, r, c) for r in ra
 # Filler between the cans
 add(
     f'<rect x="{x0 - R - 12}" y="{y0 - R - 12}" width="{(cols - 1) * p + p / 2 + 2 * R + 24}" '
-    f'height="{(rows - 1) * dy + 2 * R + 24}" rx="10" fill="{FILL}" stroke="{FILL_EDGE}" stroke-width="1"/>'
+    f'height="{(rows - 1) * dy + 2 * R + 24}" rx="10" fill="{FILL}" stroke="{TEXT_2}" stroke-width="3"/>'
 )
 # Coolant ribbons weaving between rows 0-1 and 2-3
 for r in (0, 2):
@@ -101,8 +103,8 @@ for r in (0, 2):
 # Cells
 for cx, cy, r, c in centres:
     add(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{R}" fill="url(#roll)" stroke="{CELL_EDGE}" stroke-width="1.5"/>')
-# Unit cell around the outlet cell of the first ribbon
-ux, uy = x0 + (cols - 1) * p + p / 2, y0 + dy
+# Unit cell around an interior cell
+ux, uy = x0 + 2 * p + p / 2, y0 + dy
 hexpts = " ".join(
     f"{ux + (p / math.sqrt(3)) * math.cos(math.radians(30 + 60 * k)):.1f},"
     f"{uy + (p / math.sqrt(3)) * math.sin(math.radians(30 + 60 * k)):.1f}"
@@ -111,6 +113,9 @@ hexpts = " ".join(
 add(f'<polygon points="{hexpts}" fill="none" stroke="{TEXT}" stroke-width="1.6" stroke-dasharray="5 4"/>')
 r_u = p * math.sqrt(math.sqrt(3) / (2 * math.pi))
 add(f'<circle cx="{ux:.1f}" cy="{uy:.1f}" r="{r_u:.1f}" fill="none" stroke="{TEXT}" stroke-width="1.2"/>')
+# Edge cell: bottom row, against the module wall
+ex, ey = x0 + 1 * p + p / 2, y0 + 3 * dy
+add(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="{R + 5}" fill="none" stroke="{TEXT}" stroke-width="2.2"/>')
 # Flow labels
 ylab = y0 + (rows - 1) * dy + R + 38
 text(x0 - R - 12, ylab, "coolant in", 12, COOL_OUT, 600)
@@ -120,13 +125,14 @@ lines(
     x0 - R - 12,
     ylab + 24,
     [
-        "Coolant warms along the ribbon, so the outlet",
-        "cell runs hottest. Every design is judged on it,",
-        "and the inlet cell gives the cell-to-cell spread.",
+        "Coolant warms along the channel, so outlet cells",
+        "run hottest; cells on the wall see a different",
+        "boundary. Each design is judged on four cells:",
+        "interior and edge, at the inlet and the outlet.",
     ],
 )
 # Legend
-ly = ylab + 92
+ly = ylab + 108
 for i, (fill, edge, label) in enumerate(
     ((("url(#roll)"), CELL_EDGE, "cell (jelly roll)"), (FILL, FILL_EDGE, "filler: PCM, PCM + graphite or air"))
 ):
@@ -139,7 +145,9 @@ text(x0 - R + 10, ly + 44, "cooling: side ribbon (or bottom plate, or air)", 12,
 add(
     f'<line x1="{x0 - R - 12}" y1="{ly + 66 - 4}" x2="{x0 - R + 2}" y2="{ly + 66 - 4}" stroke="{TEXT}" stroke-width="1.6" stroke-dasharray="5 4"/>'
 )
-text(x0 - R + 10, ly + 66, "one cell's share (unit cell) → circle of equal area", 12, TEXT_2)
+text(x0 - R + 10, ly + 66, "interior cell's share (unit cell) → circle of equal area", 12, TEXT_2)
+add(f'<circle cx="{x0 - R - 5}" cy="{ly + 88 - 4}" r="7" fill="none" stroke="{TEXT}" stroke-width="2.2"/>')
+text(x0 - R + 10, ly + 88, "edge cell: part of its share lies on the module wall", 12, TEXT_2)
 
 # Leader from the unit cell to panel B
 bx0, by0 = 470.0, 290.0  # apex of the sector in panel B
@@ -208,10 +216,10 @@ lines(
     bx0 - 20,
     ay + 74,
     [
-        "Cooling sink: a side ribbon takes heat at the can",
-        "into coolant at T" + SUB.format("c") + "(t), set by the coolant's own heat",
-        "balance along the channel. A bottom plate takes",
-        "it from every node instead.",
+        "Cooling sink: heat leaves into coolant at T" + SUB.format("c") + "(t), set by",
+        "the coolant's own heat balance along the channel.",
+        "Air cooling wets the whole can, so 1D fits. A plate",
+        "or a ribbon touches one side, so those run in 2D (D).",
     ],
     12,
     COOL_OUT,
@@ -226,7 +234,7 @@ text(850, 104, "Design loop", 15, TEXT, 700)
 steps = [
     ("Duty cycle", "WLTC, motorway + rapid charge, constant C-rate"),
     ("Electro-thermal cell", "OCV, resistance, kinetics → heat q‴(t)"),
-    ("Module unit cell (B)", "inlet and outlet cell, coolant balance"),
+    ("Module cells (B, D)", "interior and edge × inlet and outlet"),
     ("Sweep the designs", "topology × flow × chiller × filler × gap"),
     ("Trade-off and picks", "mass vs fan / pump / chiller energy,"),
 ]
@@ -246,6 +254,94 @@ for i, (head, sub) in enumerate(steps):
     else:
         arrow(bx + bw / 2, y + bh + 2, bx + bw / 2, y + bh + gap - 2)
 
+
+# ---------------------------------------------------------------------------
+# D  2D slices
+# ---------------------------------------------------------------------------
+dy0 = 650.0
+add(f'<line x1="30" y1="{dy0 - 34}" x2="{W - 30}" y2="{dy0 - 34}" stroke="{GRID}" stroke-width="1"/>')
+text(30, dy0, "D", 15, TEXT, 700)
+text(50, dy0, "Where cooling touches one side: 2D slices of the same share", 15, TEXT, 700)
+
+# D1  bottom plate: radius x height
+gx, gy, gw, gh, fw = 90.0, dy0 + 40, 150.0, 170.0, 40.0  # cell width (r), height (z), filler width
+add(f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" fill="url(#roll)" stroke="{CELL_EDGE}" stroke-width="1.5"/>')
+add(f'<rect x="{gx + gw}" y="{gy}" width="{fw}" height="{gh}" fill="{FILL}" stroke="{FILL_EDGE}" stroke-width="1.5"/>')
+add(f'<rect x="{gx - 6}" y="{gy + gh + 4}" width="{gw + fw + 12}" height="14" rx="3" fill="url(#coolant)"/>')
+for i in range(7):
+    for j in range(8):
+        add(
+            f'<circle cx="{gx + (i + 0.5) * gw / 7:.1f}" cy="{gy + (j + 0.5) * gh / 8:.1f}" r="2.2" fill="{CELL_EDGE}"/>'
+        )
+for j in range(8):
+    add(f'<circle cx="{gx + gw + fw / 2:.1f}" cy="{gy + (j + 0.5) * gh / 8:.1f}" r="2.2" fill="{FILL_EDGE}"/>')
+add(
+    f'<line x1="{gx}" y1="{gy - 10}" x2="{gx}" y2="{gy + gh + 26}" stroke="{TEXT_2}" stroke-width="1" stroke-dasharray="4 3"/>'
+)
+text(gx - 8, gy + gh / 2, "axis", 11.5, TEXT_2, anchor="end")
+arrow(gx + gw / 2, gy + 30, gx + gw / 2, gy + gh - 10, COOL_OUT, 2.2, "arrow-cool")
+text(gx + gw + fw + 14, gy + gh + 15, "plate + TIM", 12, COOL_OUT, 600)
+text(gx + gw + fw + 14, gy + 14, "top: hottest", 12, TEXT_2)
+text(gx, gy + gh + 46, "Bottom plate: radius × height", 13, TEXT, 600)
+lines(gx, gy + gh + 64, ["Heat runs down the winding to the plate,", "so the top of the cell runs hottest."], 12)
+
+# D2  side ribbon: radius x angle (top view, half domain by symmetry)
+cx2, cy2, rc2, ru2 = 570.0, dy0 + 185, 105.0, 135.0
+
+
+def pol(r, a):
+    return cx2 + r * math.cos(math.radians(a)), cy2 - r * math.sin(math.radians(a))
+
+
+def half_ring(r0, r1, fill, edge):
+    p1, p2, p3, p4 = pol(r0, 0), pol(r1, 0), pol(r1, 180), pol(r0, 180)
+    d = f"M{p1[0]:.1f},{p1[1]:.1f} L{p2[0]:.1f},{p2[1]:.1f} A{r1},{r1} 0 0 0 {p3[0]:.1f},{p3[1]:.1f}"
+    d += f" L{p4[0]:.1f},{p4[1]:.1f} A{r0},{r0} 0 0 1 {p1[0]:.1f},{p1[1]:.1f} Z" if r0 > 0 else " Z"
+    add(f'<path d="{d}" fill="{fill}" stroke="{edge}" stroke-width="1.5"/>')
+
+
+half_ring(0, rc2, "url(#roll)", CELL_EDGE)
+half_ring(rc2, ru2, FILL, FILL_EDGE)
+for i in range(1, 6):
+    for k in range(9):
+        x, y = pol(i * rc2 / 5.6, (k + 0.5) * 180 / 9)
+        add(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.2" fill="{CELL_EDGE}"/>')
+q0, q1 = pol(rc2 + 4, 34), pol(rc2 + 4, 1)
+add(
+    f'<path d="M{q0[0]:.1f},{q0[1]:.1f} A{rc2 + 4},{rc2 + 4} 0 0 1 {q1[0]:.1f},{q1[1]:.1f}" '
+    f'fill="none" stroke="{COOL}" stroke-width="9" stroke-linecap="round"/>'
+)
+add(
+    f'<line x1="{cx2 - ru2 - 14}" y1="{cy2}" x2="{cx2 + ru2 + 14}" y2="{cy2}" '
+    f'stroke="{TEXT_2}" stroke-width="1" stroke-dasharray="4 3"/>'
+)
+text(cx2 + ru2 + 6, cy2 - 52, "ribbon contact", 12, COOL_OUT, 600)
+text(cx2 - ru2 - 8, cy2 - 34, "far side:", 12, TEXT_2, anchor="end")
+text(cx2 - ru2 - 8, cy2 - 18, "warmer", 12, TEXT_2, anchor="end")
+text(cx2, cy2 + 18, "symmetry plane: half the can is solved", 11.5, TEXT_2, anchor="middle")
+text(cx2 - ru2, dy0 + 240, "Side ribbon: radius × angle (top view)", 13, TEXT, 600)
+lines(cx2 - ru2, dy0 + 258, ["The ribbon touches a strip of the can, so heat", "runs round the can to reach it."], 12)
+
+# Notes
+lines(
+    850,
+    dy0 + 50,
+    [
+        "Both slices share one solver with the 1D model:",
+        "finite volumes in enthalpy form, so the PCM melts",
+        "and re-freezes, with the same cell heat, coolant",
+        "balance and edge-cell wall.",
+        "",
+        "The 2D field changes the answer: the plate case",
+        "runs about 6 K hotter at the top than at the base",
+        "at the 1.5C peak, which a 1D model cannot see.",
+        "",
+        "Computed fields: docs/figures/fields_2d.png",
+    ],
+    12.5,
+    TEXT_2,
+    lh=19,
+)
 add(
     f'<text x="{W - 30}" y="{H - 16}" font-size="11" fill="{MUTED}" text-anchor="end">'
     "Schematic, not to scale. r<tspan baseline-shift='sub' font-size='8'>u</tspan>: radius of a circle with the same area as one cell's share.</text>"

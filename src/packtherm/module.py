@@ -17,26 +17,31 @@ expanded-graphite composite PCM.
 
 Heat leaves through one cooling topology:
 
-* ``AirFlow``: forced air through the gaps, h on the can surface (air filler only).
-* ``BottomPlate``: cells stand on a cold plate. Heat travels down the cell
-  (axial conductivity of the winding, ``Cell.k_axial``), across the
-  roll-to-can end resistance, the thermal interface (bond-line / k) and into
-  the coolant. In the radial model this is a distributed sink: each ring of
-  height L and footprint A has the mean-temperature conductance
-      G = V / (L^2 / (3 k_ax) + L (R_end + R_tim + 1/h))
-  (exact for uniform generation; the top of the cell runs hotter than the
-  mean by q L^2 / (6 k_ax), reported as ``T_top``).
-* ``SideRibbon``: a cooling tube bonded along each can, touching a fraction
-  of its circumference (a sink on the can surface).
+* ``AirFlow``: forced air through the gaps, h on the can surface (air filler
+  only). Flow sets h (h ~ flow^0.8), the air's temperature rise and fan power.
+* ``BottomPlate``: cells stand on a cold plate. Solved on a radius x height
+  grid (``model2d.simulate_2d``): heat runs down the winding (``Cell.k_axial``),
+  across the roll-to-can end resistance, the thermal interface and the coolant
+  film; the top of the cell runs hottest. ``nz=0`` falls back to the radial
+  model with a distributed sink and a quasi-steady axial estimate.
+* ``SideRibbon``: a cooling tube bonded to a strip of each can (a share of the
+  circumference over 75 % of the height). Solved on a radius x angle grid
+  (``model2d.simulate_rtheta``), so the far side of the can runs warmer.
+  ``n_theta=0`` falls back to the radial model with the contact spread evenly.
 * No cooling: an interior cell of a packed, uncooled module is adiabatic.
   Free-air natural convection does not exist inside a pack.
 
-Coolant (plate or ribbon) warms as it passes cells. With flow m per cell,
-the outlet coolant is T_in + Q_cell / (m cp), solved in balance with the
-heat the cell rejects each step (unconditionally stable). The cell at the outlet is the
-hottest; ``position="inlet"`` runs the coldest one. Flow sets h through
-Dittus-Boelter scaling (h ~ m^0.8) and pump power through P = (m/rho) dp / eta
-with dp ~ m^2, so flow is the single cooling design variable.
+Coolant (plate or ribbon) warms as it passes cells and holds heat itself: the
+coolant in each cell's share of the channel (``coolant_holdup_kg``) is a lump
+with heat capacity, solved implicitly each step together with the heat the
+cell rejects. ``position`` picks the cell: "outlet" (hottest coolant, the
+default), "inlet" (coldest) or "mean". Flow sets h (h ~ flow^0.8) and pump
+power over the whole loop, (flow/rho) (dp_module + dp_loop) / eta with
+dp ~ flow^2. A chiller (``Coolant.inlet_C`` below ambient) can hand back to the
+radiator after ``chiller_until_s``; ``Chiller`` prices its electricity.
+
+``edge=True`` puts the cell on the module wall (``Wall``): a share of its
+boundary exchanges heat with ambient instead of with a neighbour.
 """
 
 from __future__ import annotations
@@ -220,6 +225,12 @@ class AirFlow:
     2 m/s through a 2 mm x 70 mm gap per cell), 200 Pa pack pressure drop at
     that flow, fan efficiency 0.3. ``track_rise=False`` ignores the air
     temperature rise (every cell sees ambient air).
+
+    The gap matters too (v0.4.12): at a fixed mass flow a narrower gap carries
+    faster air. In a narrow channel h ~ 1/gap (laminar, Nusselt number fixed
+    by geometry; also the turbulent result at fixed mass flow) and the
+    pressure drop ~ 1/gap^3, scaled from ``gap_ref_mm``. A ``Module`` sets
+    ``gap_mm`` from its layout.
     """
 
     flow_g_s_per_cell: float = 0.3
@@ -230,15 +241,23 @@ class AirFlow:
     dp_ref_Pa: float = 200.0
     fan_efficiency: float = 0.3
     track_rise: bool = True
+    gap_ref_mm: float = 2.0  # gap at which h_ref and dp_ref apply
+    gap_mm: float | None = None  # the gap the air flows through; None = gap_ref_mm
     name: str = "air"
 
     def __post_init__(self) -> None:
         if self.flow_g_s_per_cell <= 0:
             raise ValueError("Air flow must be positive.")
+        if self.gap_mm is not None and self.gap_mm <= 0:
+            raise ValueError("Air gap must be positive.")
+
+    @property
+    def _gap_ratio(self) -> float:
+        return self.gap_ref_mm / (self.gap_mm if self.gap_mm is not None else self.gap_ref_mm)
 
     @property
     def h(self) -> float:
-        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 0.8
+        return self.h_ref * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 0.8 * self._gap_ratio
 
     @property
     def mdot(self) -> float:
@@ -246,7 +265,7 @@ class AirFlow:
 
     @property
     def pump_power_W_per_cell(self) -> float:
-        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2
+        dp = self.dp_ref_Pa * (self.flow_g_s_per_cell / self.flow_ref_g_s) ** 2 * self._gap_ratio**3
         return self.mdot / self.rho * dp / self.fan_efficiency
 
     def rise_K(self, Q_W_per_cell: float) -> float:
@@ -256,7 +275,7 @@ class AirFlow:
     def with_h(cls, h: float, **kw) -> AirFlow:
         """The air flow that gives convective coefficient ``h``."""
         ref = cls(**kw)
-        return cls(flow_g_s_per_cell=ref.flow_ref_g_s * (h / ref.h_ref) ** 1.25, **kw)
+        return cls(flow_g_s_per_cell=ref.flow_ref_g_s * (h / (ref.h_ref * ref._gap_ratio)) ** 1.25, **kw)
 
 
 @dataclass(frozen=True)
@@ -358,6 +377,10 @@ class Module:
     wall: Wall = field(default_factory=Wall)  # used for edge cells only
 
     def __post_init__(self) -> None:
+        if isinstance(self.cooling, AirFlow) and self.cooling.gap_mm != self.layout.gap_mm:
+            from dataclasses import replace as _replace
+
+            object.__setattr__(self, "cooling", _replace(self.cooling, gap_mm=self.layout.gap_mm))
         if isinstance(self.cooling, AirFlow) and self.filler is not None:
             raise ValueError("AirFlow needs open gaps: use filler=None.")
         if isinstance(self.cooling, SideRibbon) and self.layout.gap_mm < self.cooling.min_gap_mm:
@@ -747,8 +770,12 @@ def compare_modules(
     duty,
     T_ambient_C: float = 25.0,
     dt: float = 2.0,
+    edge: bool = False,
 ) -> list[dict]:
-    """Inlet and outlet cell of each module design for one duty cycle (a design.DutyCycle)."""
+    """Inlet and outlet cell of each module design for one duty cycle (a design.DutyCycle).
+
+    ``edge=True`` runs the cells on the module wall instead of interior cells.
+    """
     from dataclasses import replace as _replace
 
     base = Params()
@@ -756,7 +783,12 @@ def compare_modules(
     duration = duty.event_duration()
     rows = []
     for m in modules:
-        out = {"module": m.describe(), "cooling": m.cooling.name if m.cooling else "none", "filler": m.filler or "air"}
+        out = {
+            "module": m.describe(),
+            "cooling": m.cooling.name if m.cooling else "none",
+            "filler": m.filler or "air",
+            "gap_mm": m.layout.gap_mm,
+        }
         for pos in ("inlet", "outlet"):
             r = simulate_module(
                 cell,
@@ -768,6 +800,7 @@ def compare_modules(
                 soc0=duty.soc0,
                 soc_limits=duty.soc_limits,
                 base=base,
+                edge=edge,
             )
             out[f"T_peak_{pos}_C"] = r.T_peak_C
             out[f"dT_cell_{pos}_K"] = r.dT_cell_max

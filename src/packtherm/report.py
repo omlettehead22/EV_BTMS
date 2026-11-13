@@ -13,6 +13,7 @@ three cooling kinds (validated all-pairs), a one-hue blue ramp for temperature.
 
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -30,24 +31,6 @@ PICK_LABEL = {"lightest": "Lightest", "lowest_energy": "Lowest energy", "balance
 
 def _design_name(row) -> str:
     return f"{row.cooling}, {row.pcm}"
-
-
-def _label_offset(ax, x, y, k: int) -> tuple[tuple[float, float], str, str]:
-    """Offset and alignment for the k-th pick label at data point (x, y).
-
-    The front is a staircase that runs right along the top of each point and
-    drops onto the next one, so the region below-left of a front point holds
-    no front line. Labels go there; the leftmost picks go below-right (under
-    their own horizontal segment) and picks near the bottom go above-left
-    (beside the vertical segment that drops onto them).
-    """
-    ax.figure.canvas.draw()
-    fx, fy = ax.transAxes.inverted().transform(ax.transData.transform((x, y)))
-    dy = 22 + 40 * k
-    left = fx > 0.4
-    if fy < 0.3:
-        return ((-16, dy), "right", "bottom") if left else ((8, dy), "left", "bottom")
-    return ((-16, -dy), "right", "top") if left else ((6, -dy), "left", "top")
 
 
 def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
@@ -74,7 +57,7 @@ def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
     rows = list(dict.fromkeys(t.cooling))
     cols = list(dict.fromkeys(t.pcm))
     grid_w = max(6.5, 0.9 * len(cols) + 1.5)
-    height = max(6.4, 0.34 * len(rows) + 2.6)
+    height = max(6.4, 0.34 * len(rows) + 2.6) + 1.5  # room for the legend and pick key
     fig, (ax, hx) = plt.subplots(1, 2, figsize=(8.0 + grid_w, height), gridspec_kw={"width_ratios": [8.0, grid_w]})
     fig.patch.set_facecolor(SURFACE)
     for a in (ax, hx):
@@ -117,24 +100,28 @@ def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
     labelled: dict[int, list[str]] = {}
     for key, row in result.picks.items():
         labelled.setdefault(row.name, []).append(PICK_LABEL[key])
-    for k, (i, names) in enumerate(labelled.items()):
+    key = []
+    for n, (i, names) in enumerate(labelled.items(), start=1):
         r = t.loc[i]
         ax.scatter(
             [r.mass_overhead_pct], [r.aux_energy_pct], s=240, facecolors="none", edgecolors=TEXT, linewidths=2, zorder=4
         )
-        off, ha, va = _label_offset(ax, r.mass_overhead_pct, r.aux_energy_pct, k)
+        # A numbered badge beside each pick, with the names in a key under the plot:
+        # free text labels collide when picks sit close together.
         ax.annotate(
-            f"{' / '.join(names)}\n{_design_name(r)}\n{r.T_peak_C:.1f} °C peak",
+            str(n),
             (r.mass_overhead_pct, r.aux_energy_pct),
-            xytext=off,
+            xytext=(-13, 13),
             textcoords="offset points",
-            ha=ha,
-            va=va,
+            ha="center",
+            va="center",
             fontsize=9,
+            fontweight="bold",
             color=TEXT,
-            arrowprops={"arrowstyle": "-", "color": TEXT_2, "linewidth": 1},
-            zorder=5,
+            bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": TEXT, "linewidth": 1},
+            zorder=6,
         )
+        key.append(f"{n}  {' / '.join(names)}: {_design_name(r)}, {r.T_peak_C:.1f} °C peak")
     ax.set_title("A  Trade-off: lower-left is better", loc="left", fontweight="bold")
     names = result.kind_names
     handles = [
@@ -162,16 +149,26 @@ def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
     ]
     ax.legend(
         handles=handles,
-        loc="lower right",
-        ncol=2,
-        framealpha=0.92,
-        facecolor=SURFACE,
-        edgecolor=GRID,
+        loc="upper left",
+        bbox_to_anchor=(0.0, -0.11),
+        ncol=4,
+        frameon=False,
         fontsize=8.5,
         labelcolor=TEXT,
         handletextpad=0.3,
-        columnspacing=1.0,
+        columnspacing=1.2,
     )
+    if key:
+        ax.text(
+            0.0,
+            -0.25,
+            "Picks\n" + "\n".join(key),
+            transform=ax.transAxes,
+            va="top",
+            fontsize=9,
+            color=TEXT,
+            linespacing=1.5,
+        )
 
     # ---- Panel B: peak temperature grid ----------------------------------
     grid = t.pivot(index="cooling", columns="pcm", values="T_peak_C").loc[rows, cols]
@@ -225,15 +222,13 @@ def plot_tradeoff(result: StudyResult, path: str | Path | None = None):
         fontweight="bold",
         color=TEXT,
     )
-    fig.text(
-        0.01,
-        0.005,
+    note = (
         f"Limits: peak ≤ {t.T_limit_C.iloc[0]:g} °C, in-cell ΔT ≤ {s.requirements.dT_cell_max_C:g} °C, "
-        f"{result._recovery_text()}. {result.footnote()}",
-        fontsize=8.5,
-        color=TEXT_2,
+        f"{result._recovery_text()}. {result.footnote()}"
     )
-    fig.tight_layout(rect=(0, 0.03, 1, 0.96))
+    note = textwrap.fill(note, width=int(fig.get_figwidth() * 15))
+    fig.text(0.01, 0.008, note, fontsize=8.5, color=TEXT_2, va="bottom")
+    fig.tight_layout(rect=(0, 0.02 + 0.022 * note.count("\n") + 0.02, 1, 0.96))
     if path is not None:
         fig.savefig(path, dpi=140, facecolor=SURFACE)
     return fig

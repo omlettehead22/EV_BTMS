@@ -402,3 +402,16 @@ def test_ribbon_strip_contact():
         assert r.res.balance_error_pct < 1e-6
         # Heat into the coolant matches generation at quasi-steady state (whole-cell accounting).
         assert r.Q_coolant[i] == pytest.approx(r.res.heat_W[i], rel=0.01)
+
+
+def test_air_gap_sets_h_and_fan_power():
+    """Fixed mass flow through a narrower gap: faster air, h ~ 1/gap, dp ~ 1/gap^3."""
+    ref = Module(Layout("hex", 2.0), None, AirFlow())
+    narrow = Module(Layout("hex", 1.0), None, AirFlow())
+    assert ref.cooling.h == pytest.approx(30.0)
+    assert narrow.cooling.gap_mm == 1.0
+    assert narrow.cooling.h == pytest.approx(2 * ref.cooling.h)
+    assert narrow.cooling.pump_power_W_per_cell == pytest.approx(8 * ref.cooling.pump_power_W_per_cell)
+    prof = constant_current(LG_M50, 1.5)
+    T = [simulate_module(LG_M50, m, prof, 1200, 25.0).T_peak_C for m in (narrow, ref)]
+    assert T[0] < T[1]

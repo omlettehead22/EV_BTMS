@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.12
+
+An audit of every documented command, message and claim, plus the documentation rebuilt around the module tool.
+
+- **Fixed: crash on gaps below the ribbon minimum.** `packtherm design M50 ... --gaps 1.5 2 3` (the README example) failed with "Index contains duplicate entries": every gap under 3.5 mm widens to 3.5 mm for a ribbon, so the same design appeared several times. `ModuleStudy.designs()` now keeps one of each.
+- **Fixed: air cooling did not depend on the gap.** Forced air now scales with the gap at fixed mass flow: h ∝ 2 mm / gap and pressure drop ∝ (2 mm / gap)³ (laminar channel, fixed Nusselt number; `AirFlow.gap_ref_mm`). A module sets the gap on its air flow. Results at the 2 mm default are unchanged.
+- **Fixed: messages.**
+  - A study with feasible designs that all fail the worst-case re-check said there was no feasible design; it now says "No robust design", lists each with its nominal and worst-case peak, and suggests what to change.
+  - The chilled pull-down note appeared whenever a chilled bottom plate was in the sweep; it now appears only when one fails on uneven cooling.
+  - `packtherm module --compare` printed the gap-widened note once per ribbon design, and its header showed the requested gap; the header now shows the gaps actually used, and the output has a `gap_mm` column.
+- **Fixed: trade-off chart labels.** Pick labels could overlap each other and the legend when picks sat close together, and a long footnote ran off the edge. Picks are now numbered badges with a key under the plot, the legend sits below the axes, and the footnote wraps.
+- **CLI:**
+  - `packtherm design`: `--no-edge-cells` and `--wall-u`; progress line says which cells are simulated; clearer help for `--cell-to-cell-max` and `--cells-in-pack`.
+  - `packtherm module --edge` runs the edge cells.
+  - `packtherm cells` shows each cell's model (measured circuit, derived circuit or lumped DCIR); `R0_mOhm` renamed `DCIR_25C_mOhm`, with a note on what it is used for; capacity rounded.
+- **Package:** the top-level docstring, `module.py` docstring and `pyproject.toml` description describe the module tool; project URLs added; `LG_M50_LUMPED`, `with_R0`, `PackHardware`, `hardware_mass_per_cell`, `Chiller`, `PlateGeometry`, `RibbonGeometry`, `Wall`, `compare_modules`, `ModuleDesign`, `ModuleStudy`, `run_module_study`, `DutyCycle` and `Requirements` exported.
+- **Docs:**
+  - README rebuilt around the module tool: design result first, then the 2D fields, then validation. Thesis-era results, figures and the version table moved to `docs/HISTORY.md` (`docs/history/`).
+  - New figures: model picture with edge cells and the 2D slices; 2D temperature fields (`make_fields.py`); cold-weather validation before and after v0.4.10 (`make_validation_compare.py`); M50 circuit against the physics model (`validation/check_m50_ecm.py`, `make_m50_check.py`).
+  - VALIDATION.md: 48 blind tests plus one calibration test (was "49 blind"); thermal median 0.60 K; new LG M50 section.
+  - BACKLOG.md restructured into open items and a resolved log; stale items removed (pump efficiency, uniform ribbon contact, speed, licence).
+  - Example studies regenerated.
+- **Effect:** same picks; no result at the default 2 mm gap changes.
+
 ## 0.4.11
 - **LG M50 equivalent circuit** (`cells.LG_M50_ECM`, now on `LG_M50`): derived, not measured. PyBaMM's DFN with the ORegan2022 parameter set (measured on the LG M50T, with temperature dependence) was run through synthetic HPPC tests at 25, 10, 0 and −10 °C, and the PF cell's circuit fitted to them (`validation/derive_m50_ecm.py`). OCV table `data/lgm50_oregan2022_ocv.csv`.
   - Pulse overpotential within 3.6–4.7 % (median) at every temperature; replay within 21–23 mV above 10 % SOC.

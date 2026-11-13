@@ -445,12 +445,23 @@ class StudyResult:
         lines += [f"WARNING: {w}" for w in self.warnings]
         lines += self.notes()
         if not self.picks and t.feasible.any():
-            lines.append("No robust design: every feasible design fails at worst-case resistance.")
+            lines.append(
+                f"No robust design: all {int(t.feasible.sum())} feasible designs fail at worst-case resistance "
+                "(lower --r-margin, raise the limits, or add stronger cooling):"
+            )
+            for _, r in t[t.feasible].sort_values("T_peak_worst_C").iterrows():
+                worst = (
+                    f"{r.T_peak_worst_C:.1f} degC ({r.worst_fail_reason})" if np.isfinite(r.T_peak_worst_C) else "n/a"
+                )
+                lines.append(
+                    f"  {r.design}: T_peak {r.T_peak_C:.1f} degC nominal, {worst} at {r.R0_worst_mOhm:.0f} mOhm"
+                )
+            return "\n".join(lines)
         if not self.picks:
             best = t.loc[t.T_peak_C.idxmin()]
             lines.append(
-                f"No feasible design. Coolest: {best.design} at {best.T_peak_C:.1f} degC ({best.fail_reason}). "
-                "Reduce the load, raise the limit, or add stronger cooling."
+                f"No feasible design. Coolest: {best.design} at {best.T_peak_C:.1f} degC (fails: {best.fail_reason}). "
+                "Reduce the load, raise the limits, or add stronger cooling."
             )
             return "\n".join(lines)
         for key, label in (("lightest", "Lightest"), ("lowest_energy", "Lowest energy"), ("balanced", "Balanced")):
