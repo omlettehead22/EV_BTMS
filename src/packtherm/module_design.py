@@ -412,15 +412,26 @@ class ModuleStudyResult(StudyResult):
         return out
 
 
-def run_module_study(study: ModuleStudy, workers: int | None = None, robustness: bool = True) -> ModuleStudyResult:
+def run_module_study(
+    study: ModuleStudy, workers: int | None = None, robustness: bool = True, progress=None
+) -> ModuleStudyResult:
+    """Simulate every design, then re-check the picks at worst-case resistance.
+
+    progress(stage, done, total), if given, is called as designs finish; stage
+    is "designs" for the sweep and "re-check" for the worst-case runs.
+    """
     designs = study.designs()
-    table = pd.DataFrame(_map(_eval_args, [(study, d) for d in designs], workers))
+
+    def report(stage):
+        return (lambda done, total: progress(stage, done, total)) if progress else None
+
+    table = pd.DataFrame(_map(_eval_args, [(study, d) for d in designs], workers, report("designs")))
     R_worst = study.R0_worst
 
     def recheck(idx):
         # The inlet cell only matters for the spread limit.
         need_inlet = study.cell_to_cell_max_K is not None
-        return _map(_eval_args, [(study, designs[i], R_worst, need_inlet) for i in idx], workers)
+        return _map(_eval_args, [(study, designs[i], R_worst, need_inlet) for i in idx], workers, report("re-check"))
 
     picks = select_front(table, recheck, robustness and R_worst > study.cell.R0_25C)
     return ModuleStudyResult(study, table, picks)

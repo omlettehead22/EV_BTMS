@@ -119,6 +119,8 @@ packtherm design my_cell.yaml --duty roadtrip --t-env 35 --fast
 
 User-defined cells use the lumped resistance model (no voltage model, so no cut-off or constant-voltage charge taper), and their results say so. [`docs/examples/user_cell_mj1.yaml`](docs/examples/user_cell_mj1.yaml) is the LG MJ1 written this way; it gives exactly the library MJ1's results.
 
+**HTTP API.** `pip install "packtherm[api]"`, then `packtherm serve` (or `docker build -t packtherm .`) runs studies over HTTP: submit a study as JSON, check its progress, fetch the results. Interactive docs are at `/docs`; examples, limits and API keys are in [docs/API.md](docs/API.md).
+
 ```python
 from packtherm import LG_M50, Coolant, Layout, Module, SideRibbon, compare_modules
 from packtherm.ev import road_trip_duty
@@ -134,7 +136,7 @@ run = load_study("docs/examples/m50_roadtrip_35c.yaml").run()
 print(run.result.summary())  # run.to_json() is the results document
 ```
 
-**Study files.** A study (cell, duty, ambient, limits, design space, options, normal or fast) can be written as one YAML or JSON file; `packtherm design` flags build the same document. Every key is described in [docs/STUDY_FILES.md](docs/STUDY_FILES.md). Each example study in [`docs/examples/`](docs/examples/) has its file and its results JSON, and every number this README quotes from them is checked in CI (`tests/test_docs.py`).
+**Study files.** A study (cell, duty, ambient, limits, design space, options, normal or fast) can be written as one YAML or JSON file; `packtherm design` flags build the same document. Every key is described in [docs/STUDY_FILES.md](docs/STUDY_FILES.md). Each example study in [`docs/examples/`](docs/examples/) has its file and its results JSON, and every number this README quotes from them is checked in CI (`tests/test_docs.py`). CI also re-runs the examples in fast mode and checks they still match their committed results (`tests/test_examples_rerun.py`).
 
 A module study of about 40 designs takes 2–3½ minutes on two cores, or under a minute with `--fast` (peaks within about 0.1 K of normal mode; see [docs/FAST_MODE.md](docs/FAST_MODE.md)). `packtherm design --help` lists every design variable and limit.
 
@@ -163,8 +165,9 @@ A module study of about 40 designs takes 2–3½ minutes on two cores, or under 
 | **v0.4.13** | Physics audit: laminar coolant channels and cross-flow air laws, in-cell spread measured on the cooled face, datasheet limits checked per phase and as currents, CLI input checks |
 | **v0.5.0** | Fast and normal modes: fast is about 5× quicker with the same verdicts on the example studies; exact region volumes on every mesh |
 | **v0.5.1** | Study files (YAML or JSON): `packtherm run`, `packtherm template`, results JSON; README numbers checked in CI |
-| **v0.5.2** (current) | User-defined cylindrical NMC/NCA cells from datasheet values, with unit-slip checks |
-| v0.5.x (next) | HTTP API, web app, public deployment, LFP cells |
+| **v0.5.2** | User-defined cylindrical NMC/NCA cells from datasheet values, with unit-slip checks |
+| **v0.5.3** (current) | HTTP API (queue, progress, results, limits, API keys), Docker image; example studies re-run in CI |
+| v0.5.x (next) | Web app, public deployment, LFP cells |
 
 Results from earlier versions, as they stood at the time, are in [docs/HISTORY.md](docs/HISTORY.md); every change is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -173,6 +176,7 @@ Results from earlier versions, as they stood at the time, are in [docs/HISTORY.m
 ```
 src/packtherm/        the package: cells, user_cells, ecm, electrothermal, model (1D), model2d, module, hardware,
                       module_design, study (study files), design, ev, materials, report, validation, cli
+src/packtherm/api/    the HTTP API (FastAPI): settings and limits, jobs, endpoints
 src/packtherm/data/   WLTC Class 3b trace (UN GTR 15), NCR18650PF and LG M50 OCV tables
 validation/           dataset preparation, identification, M50 derivation and checks, processed test data
 docs/examples/        example study files, their results (JSON, CSV, charts) and module comparisons
@@ -182,6 +186,7 @@ docs/VALIDATION.md    validation method and results
 docs/BACKLOG.md       known issues and improvement plan
 docs/FAST_MODE.md     fast and normal modes: settings, speed and accuracy
 docs/STUDY_FILES.md   study, cell and results file formats
+docs/API.md           the HTTP API: endpoints, limits, keys, settings
 docs/HISTORY.md       earlier versions, thesis results and figures (docs/history/)
 tests/                parity, physics, module, design and validation tests
 matlab/               original thesis code and reference results

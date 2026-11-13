@@ -17,3 +17,26 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check src tests
       - run: pytest -q
+
+  docker:
+    # Build the API image, start it, and run a small study through it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t packtherm .
+      - run: docker run -d --name api -p 8000:8000 packtherm
+      - name: Health and a study through the API
+        run: |
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 2; done
+          id=$(curl -sf -X POST localhost:8000/studies -H 'content-type: application/json' \
+            -d '{"packtherm_study":1,"cell":"M50","mode":"fast","duty":{"type":"constant","c_rate":1.5},"design_space":{"topologies":["ribbon"],"fillers":["none"],"coolant_flows_g_s":[0.05],"chiller_C":[]}}' \
+            | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])")
+          for i in $(seq 1 60); do
+            state=$(curl -sf localhost:8000/studies/$id | python3 -c "import sys, json; print(json.load(sys.stdin)['state'])")
+            [ "$state" = done ] && break
+            [ "$state" = failed ] && { curl -s localhost:8000/studies/$id; exit 1; }
+            sleep 2
+          done
+          curl -sf localhost:8000/studies/$id/results | python3 -c "import sys, json; d = json.load(sys.stdin); print(d['summary']['text']); assert d['picks']"
+      - if: failure()
+        run: docker logs api
