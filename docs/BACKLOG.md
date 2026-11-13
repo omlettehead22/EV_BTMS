@@ -1,6 +1,6 @@
 # Known issues and improvement backlog
 
-Open items as of v0.5.0, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
+Open items as of v0.5.1, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Cell model
 1. **LG M50 circuit is derived, not measured.** It comes from PyBaMM's DFN with the ORegan2022 parameter set and matches that model's heat within 0.94–1.13× ([VALIDATION.md](VALIDATION.md#lg-m50-checked-against-a-physics-model-not-measured)), but no measured M50 temperatures check it. The Warwick M50 core-temperature data (Mendeley bf6fksxpp2) would; it is not reachable from this build. Its cold voltage knee arrives late (cut-off up to 0.75 Ah after the DFN at 0 °C, 1.4C).
@@ -29,10 +29,10 @@ Open items as of v0.5.0, ranked within each group by how much they could change 
 18. **Speed.** Fast mode (v0.5.0) runs the road-trip study in about 40 s on two cores, against about 3 minutes in normal mode. Not yet done: adaptive time steps (long steady cruise and rest periods would allow much longer steps), stopping a simulation once the cell has recovered, and compiled inner loops (Numba). A design is four cell simulations in a Python time loop, so more cores help directly.
 19. **Search instead of grid** once the design variables multiply (NSGA-II or Bayesian optimisation).
 20. **Uncertainty:** Monte Carlo over the assumptions instead of a single worst case.
-21. **Assumption registry exported with every result**, so a CSV carries the assumptions that produced it.
+21. **Assumption registry.** Since v0.5.1 a results JSON carries the main assumptions (reference flows and pressure drops, efficiencies, chiller, wall, pack parts, resolution). Not yet: the cell-model and material values, and the CSV on its own carries none.
 
 ## Engineering
-22. Regression tests against stored example-study outputs.
+22. **Regression tests that re-run the example studies** against their stored results (v0.5.1 checks the README against the stored results, but CI does not re-run the studies; fast mode could make that affordable).
 23. Publish to PyPI, add versioned docs.
 24. **Licence:** decided at v0.5.
 
@@ -56,3 +56,4 @@ Open items as of v0.5.0, ranked within each group by how much they could change 
 | v0.4.12 | Audit: duplicate-design crash, contradictory messages, CLI header and flags, air cooling now depends on the gap |
 | v0.4.13 | Physics audit: laminar coolant and cross-flow air laws, in-cell spread on the cooled face, per-phase datasheet temperature checks, datasheet limits as currents, MJ1 charge limits, CLI input checks |
 | v0.5.0 | Fast mode (about 5×); exact region volumes on every mesh; faster electrical model |
+| v0.5.1 | Study files and results JSON; README numbers checked against the examples in CI |

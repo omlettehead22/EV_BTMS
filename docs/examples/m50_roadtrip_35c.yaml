@@ -1,0 +1,9 @@
+# LG M50 pack on a 35 degC road trip: the README's headline study.
+# Same as: packtherm design M50 --duty roadtrip --t-env 35
+packtherm_study: 1
+name: M50 road trip, 35 degC
+cell: M50
+ambient_C: 35
+duty:
+  type: roadtrip
+  speed_kmh: 130

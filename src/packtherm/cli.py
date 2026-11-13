@@ -154,42 +154,21 @@ def _design(args) -> None:
         T_max_C=args.t_max, dT_cell_max_C=args.dt_max, T_env_C=args.t_env, recovery_max_min=args.recovery_max_min
     )
     if args.level == "module":
-        from .hardware import PackHardware
-        from .module import Chiller, Wall
-        from .module_design import ModuleStudy, run_module_study
+        from .study import StudySpec, validate
 
-        pack = PackHardware(
-            pack_kWh=args.pack_kwh,
-            liquid_loop_kg=args.liquid_loop_kg,
-            air_system_kg=args.air_system_kg,
-            chiller_kg=args.chiller_kg,
-        )
-        study = ModuleStudy(
-            cell,
-            duty,
-            req,
-            topologies=tuple(args.topologies),
-            air_flows_g_s=tuple(args.air_flows),
-            coolant_flows_g_s=tuple(args.coolant_flows),
-            chiller_inlets_C=tuple(args.chiller_c),
-            fillers=tuple(None if f in ("none", "air") else f for f in args.fillers),
-            gaps_mm=tuple(args.gaps),
-            packing=args.packing,
-            cell_to_cell_max_K=args.cell_to_cell_max,
-            edge_cells=not args.no_edge_cells,
-            wall=Wall(U=args.wall_u),
-            pack=pack,
-            chiller=Chiller(cop=args.cop),
-            chiller_runs=args.chiller_runs,
-            resistance_margin=args.r_margin,
-            mode="fast" if args.fast else "normal",
-        )
+        spec = StudySpec(validate(_study_doc(args)))
+        study = spec.build()
         cells = "interior and edge cells at inlet and outlet" if study.edge_cells else "inlet and outlet cell"
         n = len(study.designs())
         print(f"Simulating {n} module design{'s' if n != 1 else ''} ({cells}, {study.mode} mode)...")
         t0 = time.perf_counter()
-        result = run_module_study(study, workers=args.workers)
-        stem = "module_" + stem
+        run = spec.run(workers=args.workers)
+        print(run.result.summary())
+        print(f"({time.perf_counter() - t0:.0f}s)")
+        if args.out_dir:
+            paths = run.write(args.out_dir)
+            print("Wrote " + ", ".join(str(p) for p in paths.values()))
+        return
     else:
         result = _cell_study(args, cell, duty, req)
         t0 = result.t0
@@ -234,6 +213,75 @@ def _cell_study(args, cell, duty, req):
     result = run_study(study, workers=args.workers)
     result.t0 = t0
     return result
+
+
+def _study_doc(args) -> dict:
+    """The study document (packtherm.study) that ``design --level module`` flags describe."""
+    duty = {"type": args.duty, "rest_h": args.rest_h, "pack_kWh": args.pack_kwh}
+    if args.duty == "constant":
+        duty.update(c_rate=args.c_rate, direction=args.mode, soc0=args.soc0, soc_min=args.soc_min, soc_max=args.soc_max)
+    elif args.duty == "wltc":
+        duty.update(cycles=args.cycles, pack_V=args.pack_v)
+    else:
+        duty.update(speed_kmh=args.speed, charge_c_rate=args.charge_c, pack_V=args.pack_v)
+    return {
+        "packtherm_study": 1,
+        "cell": args.cell,
+        "mode": "fast" if args.fast else "normal",
+        "ambient_C": args.t_env,
+        "duty": duty,
+        "requirements": {
+            "T_max_C": args.t_max,
+            "dT_cell_max_C": args.dt_max,
+            "recovery_max_min": args.recovery_max_min,
+            "cell_to_cell_max_K": args.cell_to_cell_max,
+        },
+        "design_space": {
+            "topologies": list(args.topologies),
+            "air_flows_g_s": list(args.air_flows),
+            "coolant_flows_g_s": list(args.coolant_flows),
+            "chiller_C": list(args.chiller_c),
+            "fillers": list(args.fillers),
+            "gaps_mm": list(args.gaps),
+            "packing": args.packing,
+        },
+        "options": {
+            "edge_cells": not args.no_edge_cells,
+            "wall_U": args.wall_u,
+            "r_margin": args.r_margin,
+            "chiller_cop": args.cop,
+            "chiller_runs": args.chiller_runs,
+            "liquid_loop_kg": args.liquid_loop_kg,
+            "air_system_kg": args.air_system_kg,
+            "chiller_kg": args.chiller_kg,
+        },
+    }
+
+
+def _run(args) -> None:
+    from .study import load_study
+
+    spec = load_study(args.study)
+    study = spec.build()
+    n = len(study.designs())
+    label = f" ({spec.spec['name']})" if spec.spec.get("name") else ""
+    print(f"{args.study}{label}: {n} module design{'s' if n != 1 else ''}, {study.mode} mode...")
+    run = spec.run(workers=args.workers)
+    print(run.result.summary())
+    print(f"({run.elapsed_s:.0f}s)")
+    out = args.out_dir or Path(args.study).parent
+    paths = run.write(out)
+    print("Wrote " + ", ".join(str(p) for p in paths.values()))
+
+
+def _template(args) -> None:
+    from .study import TEMPLATE
+
+    if args.out:
+        Path(args.out).write_text(TEMPLATE, encoding="utf-8")
+        print(f"Wrote {args.out}")
+    else:
+        print(TEMPLATE, end="")
 
 
 def _build_duty(args, cell):
@@ -317,7 +365,8 @@ def _module(args) -> None:
         print(f"Wrote {args.out}")
 
 
-def main(argv: list[str] | None = None) -> None:
+def parser() -> argparse.ArgumentParser:
+    """The packtherm command-line parser."""
     ap = argparse.ArgumentParser(prog="packtherm", description="Battery thermal management design toolkit.")
     sub = ap.add_subparsers(dest="cmd")
 
@@ -455,13 +504,31 @@ def main(argv: list[str] | None = None) -> None:
     mo.add_argument("--out", type=Path, help="Write results CSV here.")
     mo.set_defaults(func=_module)
 
+    rn = sub.add_parser("run", help="Run a study file (YAML or JSON; see packtherm template).")
+    rn.add_argument("study", type=Path, help="study file (.yaml, .yml or .json)")
+    rn.add_argument("--out-dir", type=Path, help="where to write results (default: next to the study file)")
+    rn.add_argument("--workers", type=POS_INT)
+    rn.set_defaults(func=_run)
+    tp = sub.add_parser("template", help="Print a commented study file to start from.")
+    tp.add_argument("--out", type=Path, help="write it to this file instead")
+    tp.set_defaults(func=_template)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = parser()
     args = ap.parse_args(argv)
     if args.cmd is None:
         args = ap.parse_args(["thesis", *(argv or [])])
     try:
         args.func(args)
-    except (KeyError, ValueError) as e:  # unknown cell or PCM, invalid combination
-        msg = e.args[0] if e.args else str(e)
+    except (KeyError, ValueError, OSError) as e:  # unknown name, invalid combination or study, missing file
+        if isinstance(e, FileNotFoundError) and e.filename:
+            msg = f"file not found: {e.filename}"
+        elif isinstance(e, OSError):
+            msg = f"cannot read {e.filename}: {e.strerror}" if e.filename and e.strerror else str(e)
+        else:
+            msg = e.args[0] if e.args else str(e)
         ap.exit(2, f"packtherm {args.cmd}: error: {msg}\n")
 
 

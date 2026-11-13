@@ -1,0 +1,9 @@
+# LG M50 at a 1.5C full discharge, 25 degC.
+# Same as: packtherm design M50 --c-rate 1.5
+packtherm_study: 1
+name: M50 1.5C discharge, 25 degC
+cell: M50
+ambient_C: 25
+duty:
+  type: constant
+  c_rate: 1.5

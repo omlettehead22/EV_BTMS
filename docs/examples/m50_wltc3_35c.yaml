@@ -1,0 +1,9 @@
+# LG M50 pack on three back-to-back WLTC cycles at 35 degC.
+# Same as: packtherm design M50 --duty wltc --cycles 3 --t-env 35
+packtherm_study: 1
+name: M50 3 x WLTC, 35 degC
+cell: M50
+ambient_C: 35
+duty:
+  type: wltc
+  cycles: 3
