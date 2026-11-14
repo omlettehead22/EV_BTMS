@@ -15,6 +15,11 @@ Chemistries (v0.5.2):
 * ``NCA``: NCA/graphite. The same jelly-roll properties (an assumption); no
   entropic heat, as for the validated Panasonic NCA cell, because published
   NCA entropic profiles disagree even on sign.
+* ``LFP`` (v0.5.4): LFP/graphite. Heat capacity and conductivities measured on
+  whole cylindrical LFP cells (``cells.LFP_*``, from a meta-analysis and
+  Drake 2014): radial conduction about a third of NMC's. Graphite-dominated
+  entropic heat (``cells.lfp_graphite_dUdT``). Literature values from cells
+  other than yours: lower confidence than the NMC values.
 
 Values are checked for plausibility so a unit slip (mass in kg, resistance in
 ohms) fails loudly; values that are possible but unusual give warnings.
@@ -38,7 +43,11 @@ from pathlib import Path
 from typing import Any
 
 from .cells import (
+    LFP_CP,
+    LFP_K_AXIAL,
+    LFP_K_RADIAL,
     Cell,
+    lfp_graphite_dUdT,
     nmc811_graphite_dUdT,
     nmc811_jellyroll_k_axial,
     nmc811_jellyroll_properties,
@@ -46,7 +55,15 @@ from .cells import (
 
 # Nominal can sizes [mm] (diameter, height). Override with diameter_mm and height_mm.
 FORMATS = {"18650": (18.4, 65.0), "21700": (21.1, 70.1), "26650": (26.2, 65.2), "4680": (46.0, 80.0)}
-CHEMISTRIES = ("NMC", "NCA")
+CHEMISTRIES = ("NMC", "NCA", "LFP")
+ENTROPIC = ("NMC", "LFP")  # chemistries with an entropic heat profile
+# Plausibility per chemistry: nominal voltage error band and usual band [V],
+# usual density band [g/cm3], energy density error and warning limits [Wh/L].
+CHECKS = {
+    "NMC": {"V_err": (3.3, 4.2), "V_ok": (3.4, 3.8), "rho_ok": (2.2, 3.2), "whl_err": 1000, "whl_warn": 800},
+    "NCA": {"V_err": (3.3, 4.2), "V_ok": (3.4, 3.8), "rho_ok": (2.2, 3.2), "whl_err": 1000, "whl_warn": 800},
+    "LFP": {"V_err": (2.9, 3.45), "V_ok": (3.1, 3.35), "rho_ok": (1.9, 2.7), "whl_err": 600, "whl_warn": 500},
+}
 
 
 class CellError(ValueError):
@@ -144,18 +161,26 @@ def _plausibility(s: dict, where: str, errors: list[str]) -> list[str]:
     if not 1.5 <= rho <= 4.0:
         hint = " (mass_g is in grams)" if rho < 1.5 else ""
         errors.append(f"{where}mass_g: gives a density of {rho:.2f} g/cm3, outside 1.5-4.0{hint}")
-    elif not 2.2 <= rho <= 3.2:
-        warn.append(f"{where}mass_g: density {rho:.2f} g/cm3 is unusual (most cells 2.2-3.2)")
-    if not 2.5 <= s["V_nominal"] <= 4.2:
-        errors.append(f"{where}V_nominal: {s['V_nominal']:g} V is outside 2.5-4.2 V for NMC/NCA")
-    elif not 3.4 <= s["V_nominal"] <= 3.8:
-        warn.append(f"{where}V_nominal: {s['V_nominal']:g} V is unusual for NMC/NCA (most 3.6-3.7 V)")
+    elif not CHECKS[s["chemistry"]]["rho_ok"][0] <= rho <= CHECKS[s["chemistry"]]["rho_ok"][1]:
+        lo, hi = CHECKS[s["chemistry"]]["rho_ok"]
+        warn.append(f"{where}mass_g: density {rho:.2f} g/cm3 is unusual for {s['chemistry']} (most {lo:g}-{hi:g})")
+    chem, ck = s["chemistry"], CHECKS[s["chemistry"]]
+    V, (v_lo, v_hi), (ok_lo, ok_hi) = s["V_nominal"], ck["V_err"], ck["V_ok"]
+    if not v_lo <= V <= v_hi:
+        hint = ""
+        if chem != "LFP" and 2.9 <= V < v_lo:
+            hint = " (LFP cells are about 3.2 V: is this chemistry: LFP?)"
+        elif chem == "LFP" and V > v_hi:
+            hint = " (NMC and NCA cells are about 3.6 V: is the chemistry right?)"
+        errors.append(f"{where}V_nominal: {V:g} V is outside {v_lo:g}-{v_hi:g} V for {chem}{hint}")
+    elif not ok_lo <= V <= ok_hi:
+        warn.append(f"{where}V_nominal: {V:g} V is unusual for {chem} (most {ok_lo:g}-{ok_hi:g} V)")
     wh_l = s["capacity_Ah"] * s["V_nominal"] / (vol_cm3 / 1000)
-    if not 100 <= wh_l <= 1000:
+    if not 100 <= wh_l <= ck["whl_err"]:
         hint = " (capacity_Ah is in amp-hours, not mAh)" if wh_l > 10_000 else ""
-        errors.append(f"{where}capacity_Ah: gives {wh_l:.0f} Wh/L, outside 100-1000 Wh/L{hint}")
-    elif wh_l > 800:
-        warn.append(f"{where}capacity_Ah: {wh_l:.0f} Wh/L is above any production cell (about 800)")
+        errors.append(f"{where}capacity_Ah: gives {wh_l:.0f} Wh/L, outside 100-{ck['whl_err']} Wh/L for {chem}{hint}")
+    elif wh_l > ck["whl_warn"]:
+        warn.append(f"{where}capacity_Ah: {wh_l:.0f} Wh/L is above any production {chem} cell (about {ck['whl_warn']})")
     r = s["DCIR_mOhm"]
     if not 0.5 <= r <= 500:
         hint = " (DCIR_mOhm is in milliohms)" if r < 0.5 else ""
@@ -189,8 +214,13 @@ def _zero(_soc: float) -> float:
 
 def cell_from_spec(spec: dict) -> Cell:
     """Build a Cell from a validated definition (see ``validate_cell``)."""
-    _, cp_jr, k_jr = nmc811_jellyroll_properties()
-    entropic = spec["entropic"] and spec["chemistry"] == "NMC"
+    chem = spec["chemistry"]
+    if chem == "LFP":
+        cp_jr, k_jr, k_ax, dudt = LFP_CP, LFP_K_RADIAL, LFP_K_AXIAL, lfp_graphite_dUdT
+    else:
+        _, cp_jr, k_jr = nmc811_jellyroll_properties()
+        k_ax, dudt = nmc811_jellyroll_k_axial(), nmc811_graphite_dUdT
+    entropic = spec["entropic"] and chem in ENTROPIC
     cap = float(spec["capacity_Ah"])
     r0 = _milli(spec["DCIR_mOhm"])
     rmax = _milli(spec["DCIR_max_mOhm"] or spec["DCIR_mOhm"])
@@ -210,8 +240,8 @@ def cell_from_spec(spec: dict) -> Cell:
         R0_range=(r0, rmax),
         cp=spec["cp_J_kgK"] or cp_jr,
         k_radial=spec["k_radial_W_mK"] or k_jr,
-        k_axial=spec["k_axial_W_mK"] or nmc811_jellyroll_k_axial(),
-        dUdT=nmc811_graphite_dUdT if entropic else _zero,
+        k_axial=spec["k_axial_W_mK"] or k_ax,
+        dUdT=dudt if entropic else _zero,
         max_charge_C=None if spec["max_charge_A"] is None else spec["max_charge_A"] / cap,
         max_discharge_C=None if spec["max_discharge_A"] is None else spec["max_discharge_A"] / cap,
         T_max_charge_C=spec["T_max_charge_C"],
@@ -270,7 +300,7 @@ def cell_summary(spec: dict) -> dict:
         "cp_J_kgK": c.cp,
         "k_radial_W_mK": c.k_radial,
         "k_axial_W_mK": c.k_axial,
-        "entropic_heat": spec["entropic"] and spec["chemistry"] == "NMC",
+        "entropic_heat": spec["entropic"] and spec["chemistry"] in ENTROPIC,
         "max_charge_C": c.max_charge_C,
         "max_discharge_C": c.max_discharge_C,
     }

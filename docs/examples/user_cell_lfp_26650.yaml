@@ -1,0 +1,18 @@
+# An LFP power cell from its datasheet: Lithium Werks (A123) ANR26650M1-B, 26650 Power Cell
+# datasheet 080322. Check it with: packtherm cells docs/examples/user_cell_lfp_26650.yaml
+name: ANR26650M1-B (LFP, from datasheet)
+diameter_mm: 25.96
+height_mm: 65.15
+chemistry: LFP
+capacity_Ah: 2.6
+V_nominal: 3.3
+mass_g: 76.0
+# The datasheet gives only the 1 kHz AC impedance (under 10 mOhm). PackTherm needs the DC
+# resistance, which is higher: A123's earlier ANR26650M1 datasheet lists 8 mOhm at 1 kHz AC
+# and 10 mOhm DC (10 A, 1 s). 10 mOhm is used here as an estimate.
+DCIR_mOhm: 10
+max_discharge_A: 52
+max_charge_A: 10
+T_max_charge_C: 60
+T_max_discharge_C: 60
+source: Lithium Werks 26650 Power Cell datasheet (080322); DC resistance from the A123 ANR26650M1 datasheet

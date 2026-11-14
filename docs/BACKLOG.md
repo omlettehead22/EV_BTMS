@@ -1,10 +1,10 @@
 # Known issues and improvement backlog
 
-Open items as of v0.5.3, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
+Open items as of v0.5.4, ranked within each group by how much they could change a design recommendation. What has been fixed, and when, is in the [resolved log](#resolved-log) at the end and in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Cell model
 1. **LG M50 circuit is derived, not measured.** It comes from PyBaMM's DFN with the ORegan2022 parameter set and matches that model's heat within 0.94–1.13× ([VALIDATION.md](VALIDATION.md#lg-m50-checked-against-a-physics-model-not-measured)), but no measured M50 temperatures check it. The Warwick M50 core-temperature data (Mendeley bf6fksxpp2) would; it is not reachable from this build. Its cold voltage knee arrives late (cut-off up to 0.75 Ah after the DFN at 0 °C, 1.4C).
-2. **Lumped-resistance cells.** The LG MJ1 and every user-defined cell (v0.5.2) use a lumped DC resistance with assumed temperature and SOC shapes and no voltage model; `packtherm cells` shows which model each cell uses. User-defined cells are NMC or NCA only (LFP planned), and NCA has no entropic heat. Fitting a full circuit from a user's own test data is planned (v0.6).
+2. **Lumped-resistance cells.** The LG MJ1 and every user-defined cell (v0.5.2) use a lumped DC resistance with assumed temperature and SOC shapes and no voltage model; `packtherm cells` shows which model each cell uses. User-defined cells are NMC, NCA or LFP; NCA has no entropic heat, and LFP's thermal and entropic values are literature data (its entropic fit understates the measured mid-charge peak, and the coefficient's temperature dependence near full and empty is not modelled). Fitting a full circuit from a user's own test data is planned (v0.6).
 3. **Cold drive-cycle heat is 7–10 % low** on the validated PF cell: the slow-branch temperature law, fitted at 0.3C, is slightly too gentle at drive-cycle currents (worst peak −3.5 K at −20 °C).
 4. **NCA entropic heat is neglected** (no dU/dT data in the dataset; published NCA profiles disagree on the sign). The PF charge is under-predicted by 1.1–1.4 K.
 5. **Core temperature is not validated**; the dataset has one surface thermocouple.
@@ -59,3 +59,4 @@ Open items as of v0.5.3, ranked within each group by how much they could change 
 | v0.5.1 | Study files and results JSON; README numbers checked against the examples in CI |
 | v0.5.2 | User-defined cylindrical cells (NMC/NCA) from datasheet values |
 | v0.5.3 | HTTP API; example studies re-run in CI |
+| v0.5.4 | LFP user-defined cells |

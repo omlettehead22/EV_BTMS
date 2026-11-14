@@ -29,6 +29,7 @@ How PackTherm grew from an MSc thesis model to a module design tool. Results on 
 | **v0.5.1** | Study files (YAML or JSON): `packtherm run`, `packtherm template`, results JSON; README numbers checked in CI |
 | **v0.5.2** | User-defined cylindrical NMC/NCA cells from datasheet values, with unit-slip checks |
 | **v0.5.3** | HTTP API (queue, progress, results, limits, API keys), Docker image; example studies re-run in CI |
+| **v0.5.4** | LFP user-defined cells: measured thermal properties and graphite-dominated entropic heat; chemistry-specific checks |
 
 ## v0.3.1: single-cell design advisor
 
